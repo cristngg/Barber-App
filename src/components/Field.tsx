@@ -1,4 +1,4 @@
-import { useId, type InputHTMLAttributes } from 'react';
+import { useId, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { Icon } from './Icon';
 
 type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & {
@@ -33,6 +33,35 @@ export function TextField({ label, error, hint, id, ...rest }: TextFieldProps) {
           {hint}
         </span>
       ) : null}
+    </div>
+  );
+}
+
+type TextAreaProps = TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  label: string;
+  hint?: string;
+};
+
+export function TextArea({ label, hint, id, ...rest }: TextAreaProps) {
+  const autoId = useId();
+  const inputId = id ?? autoId;
+  const msgId = `${inputId}-msg`;
+  return (
+    <div className="field">
+      <label htmlFor={inputId} className="field__label">
+        {label}
+      </label>
+      <textarea
+        id={inputId}
+        className="field__input field__input--area"
+        aria-describedby={hint ? msgId : undefined}
+        {...rest}
+      />
+      {hint && (
+        <span id={msgId} className="t-detail">
+          {hint}
+        </span>
+      )}
     </div>
   );
 }

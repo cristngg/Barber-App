@@ -5,11 +5,12 @@ type Props = {
   date: Date;
   hour: number;
   service: string;
-  barberName: string;
+  /* Segunda línea: "con Carlos M." para el cliente, otra cosa para el barbero. */
+  detail: string;
   aside?: ReactNode;
 };
 
-export function AppointmentRow({ date, hour, service, barberName, aside }: Props) {
+export function AppointmentRow({ date, hour, service, detail, aside }: Props) {
   return (
     <div className="appt-row">
       <div className="appt-row__date">
@@ -20,7 +21,7 @@ export function AppointmentRow({ date, hour, service, barberName, aside }: Props
         <span className="appt-row__title">
           {service} · {formatHour(hour, true)}
         </span>
-        <span className="t-detail">con {barberName}</span>
+        <span className="t-detail">{detail}</span>
       </div>
       {aside}
     </div>

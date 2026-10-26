@@ -14,7 +14,7 @@ export function BarberCard({ barber }: { barber: Barber }) {
         <span className="t-detail">{barber.specialties.join(' · ')}</span>
         <div className="barber-card__meta">
           <Rating value={barber.rating} />
-          <span>{barber.distanceKm.toFixed(1)} km</span>
+          <span>{barber.distanceKm == null ? barber.area : `${barber.distanceKm.toFixed(1)} km`}</span>
         </div>
       </div>
       <StatusTag status={barber.freeToday ? 'free' : 'full'} compact />

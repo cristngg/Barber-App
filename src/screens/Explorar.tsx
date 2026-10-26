@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { barbers } from '../data/barbers';
 import { BarberCard } from '../components/BarberCard';
 import { BottomNav } from '../components/BottomNav';
 import { Chip, ChipRow } from '../components/Chip';
 import { SearchField } from '../components/Field';
 import { Icon } from '../components/Icon';
 import { Screen, SectionHeader } from '../components/Screen';
+import { useAppState } from '../state/AppState';
 import './screens.css';
 
 const FILTERS = [
@@ -22,9 +22,10 @@ const normalize = (s: string) =>
   s
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
+    .replace(/[\u0300-\u036f]/g, '');
 
 export function Explorar() {
+  const { barbers } = useAppState();
   const [query, setQuery] = useState('');
   const [byDistance, setByDistance] = useState(true);
   const [active, setActive] = useState<Set<FilterId>>(new Set());
@@ -46,8 +47,10 @@ export function Explorar() {
       }
       return true;
     });
-    return byDistance ? [...list].sort((a, b) => a.distanceKm - b.distanceKm) : [...list].sort((a, b) => b.rating - a.rating);
-  }, [query, active, byDistance]);
+    return byDistance
+      ? [...list].sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity))
+      : [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+  }, [barbers, query, active, byDistance]);
 
   return (
     <Screen footer={<BottomNav />}>

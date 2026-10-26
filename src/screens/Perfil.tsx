@@ -1,18 +1,21 @@
 import { Link, useParams } from 'react-router-dom';
-import { formatPrice, getBarber } from '../data/barbers';
+import { formatDistance, formatPrice } from '../data/barbers';
 import { ButtonLink } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Photo } from '../components/Photo';
 import { Rating } from '../components/Rating';
 import { ActionBar, Screen, SectionHeader } from '../components/Screen';
 import { StatusTag } from '../components/StatusTag';
+import { useAppState } from '../state/AppState';
 import { NotFound } from './NotFound';
 import './screens.css';
 
 export function Perfil() {
   const { id } = useParams();
+  const { getBarber, myBarber } = useAppState();
   const barber = getBarber(id);
   if (!barber) return <NotFound />;
+  const backTo = barber.id === myBarber?.id ? '/mi-perfil' : '/';
 
   return (
     <Screen
@@ -27,7 +30,7 @@ export function Perfil() {
     >
       <div className="cover">
         <Photo src={barber.cover} alt="" label="FOTO DE PORTADA" className="cover__photo" />
-        <Link to="/" className="icon-btn icon-btn--solid cover__back" aria-label="Volver">
+        <Link to={backTo} className="icon-btn icon-btn--solid cover__back" aria-label="Volver">
           <Icon name="back" size={22} strokeWidth={2} />
         </Link>
       </div>
@@ -40,15 +43,13 @@ export function Perfil() {
           </div>
           <div className="profile__meta">
             <Rating value={barber.rating} size={16} />
-            <span>
-              {barber.distanceKm.toFixed(1)} km · {barber.area}
-            </span>
+            <span>{formatDistance(barber)}</span>
           </div>
-          <p className="t-body">{barber.bio}</p>
+          {barber.bio && <p className="t-body">{barber.bio}</p>}
         </div>
 
         <section className="stack-12">
-          <SectionHeader title="Mis cortes" aside={`${barber.photoCount} fotos`} />
+          <SectionHeader title="Mis cortes" aside={barber.photoCount === 1 ? '1 foto' : `${barber.photoCount} fotos`} />
           <ul className="portfolio" role="list">
             {barber.services.map((s) => (
               <li key={s.id} className="portfolio__item">
@@ -58,6 +59,7 @@ export function Perfil() {
               </li>
             ))}
           </ul>
+          {barber.services.length === 0 && <p className="t-detail">Este barbero todavía no ha subido sus cortes.</p>}
         </section>
       </div>
     </Screen>

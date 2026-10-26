@@ -590,3 +590,106 @@
   flex: none;
   margin-top: 1px;
 }
+
+/* ---------- Área de texto ---------- */
+.field__input--area {
+  height: auto;
+  min-height: 112px;
+  padding: 14px var(--space-4);
+  resize: vertical;
+  font: 400 16px/22px var(--font-body);
+}
+
+.field__input--area:focus {
+  padding: 13px 15px;
+}
+
+/* ---------- Subir foto ---------- */
+.photo-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.photo-picker__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--color-control);
+  color: var(--color-brass-ink);
+}
+
+.photo-picker__btn {
+  flex: 1;
+  width: auto;
+}
+
+.photo-picker__input:focus-visible + .photo-picker__btn {
+  outline: 3px solid var(--color-polo);
+  outline-offset: 3px;
+}
+
+.photo-picker__input:disabled + .photo-picker__btn {
+  color: var(--color-disabled);
+  border-color: var(--color-line);
+  cursor: progress;
+}
+
+.picker-cover {
+  width: 132px;
+  height: 80px;
+  border-radius: var(--radius-md);
+  flex: none;
+}
+
+.picker-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-pill);
+  flex: none;
+}
+
+.picker-cut {
+  width: 112px;
+  height: 112px;
+  border-radius: var(--radius-md);
+  flex: none;
+}
+
+/* La última casilla del portafolio es la acción del dueño del perfil. */
+.upload-tile {
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-md);
+  border: 1.5px dashed var(--color-control);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--color-brass-ink);
+  text-decoration: none;
+}
+
+.upload-tile span {
+  font: 600 13px/16px var(--font-body);
+  color: var(--color-text);
+}
+
+.upload-tile:active {
+  background: var(--color-surface-high);
+}
+
+.portfolio__item--link {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.portfolio__missing {
+  font: 600 13px/18px var(--font-body);
+  color: var(--color-alert);
+}
+
+.chip--day {
+  justify-content: center;
+  padding: 0;
+}

@@ -1,5 +1,4 @@
 import { useLocation } from 'react-router-dom';
-import { getBarber } from '../data/barbers';
 import { formatHour, relativeDay } from '../data/dates';
 import { AppointmentRow } from '../components/AppointmentRow';
 import { BottomNav } from '../components/BottomNav';
@@ -11,7 +10,7 @@ import { fromISODate, useAppState } from '../state/AppState';
 import './screens.css';
 
 export function Citas() {
-  const { appointments, cancel } = useAppState();
+  const { appointments, cancel, getBarber } = useAppState();
   const location = useLocation();
   const justBooked = (location.state as { justBooked?: string } | null)?.justBooked;
 
@@ -55,7 +54,7 @@ export function Citas() {
                   date={fromISODate(a.date)}
                   hour={a.hour}
                   service={service.name}
-                  barberName={barber.name}
+                  detail={`con ${barber.name}`}
                   aside={<StatusTag status={a.status} compact />}
                 />
                 <Button variant="danger" onClick={() => cancel(a.id)}>
@@ -80,7 +79,7 @@ export function Citas() {
                 date={fromISODate(a.date)}
                 hour={a.hour}
                 service={service.name}
-                barberName={barber.name}
+                detail={`con ${barber.name}`}
                 aside={<StatusTag status="cancelled" compact />}
               />
             );

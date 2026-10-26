@@ -1,6 +1,7 @@
 /*
- * Datos de ejemplo (los mismos del diseño). Cambia esto por tu API.
+ * Barberos de ejemplo (los mismos del diseño). Cambia esto por tu API.
  * Precios: `null` hasta que cada barbero ponga el suyo; se muestran como $[PRECIO].
+ * El perfil del barbero que usa la app vive en el estado (ver AppState) y se edita en /mi-perfil.
  */
 
 export type Service = {
@@ -16,11 +17,14 @@ export type Barber = {
   area: string;
   specialties: string[];
   tags: string[];
-  rating: number;
-  distanceKm: number;
+  /* null = perfil nuevo, aún sin valoraciones */
+  rating: number | null;
+  /* null = distancia desconocida */
+  distanceKm: number | null;
   freeToday: boolean;
   openNow: boolean;
   bio: string;
+  /* URL o referencia a una foto guardada (ver state/photos) */
   avatar?: string;
   cover?: string;
   photoCount: number;
@@ -33,9 +37,9 @@ export type Barber = {
   map: { x: number; y: number };
 };
 
-const DEFAULT_HOURS = [9, 10, 11, 12, 13, 14, 15, 16];
+export const DEFAULT_HOURS = [9, 10, 11, 12, 13, 14, 15, 16];
 
-export const barbers: Barber[] = [
+export const sampleBarbers: Barber[] = [
   {
     id: 'carlos-m',
     name: 'Carlos M.',
@@ -104,12 +108,30 @@ export const barbers: Barber[] = [
   },
 ];
 
-export function getBarber(id: string | undefined) {
-  return barbers.find((b) => b.id === id);
-}
+/* Especialidades que un barbero puede marcar en su perfil. */
+export const SPECIALTIES = [
+  { tag: 'fade', label: 'Fade' },
+  { tag: 'barba', label: 'Barba' },
+  { tag: 'disenos', label: 'Diseños' },
+  { tag: 'ninos', label: 'Niños' },
+  { tag: 'clasico', label: 'Clásico' },
+  { tag: 'navaja', label: 'Navaja' },
+] as const;
 
 export function formatPrice(price: number | null) {
   return price == null ? '$[PRECIO]' : `$${price.toFixed(2)}`;
+}
+
+/* "12", "12.5", "12,50" o "$12" → 12.5; vacío o inválido → null */
+export function parsePrice(input: string): number | null {
+  const clean = input.replace(/[$\s]/g, '').replace(',', '.');
+  if (!/^\d+(\.\d{1,2})?$/.test(clean)) return null;
+  const n = Number(clean);
+  return n > 0 && n < 1000 ? n : null;
+}
+
+export function formatDistance(barber: Barber) {
+  return barber.distanceKm == null ? barber.area : `${barber.distanceKm.toFixed(1)} km · ${barber.area}`;
 }
 
 /* Horas ya tomadas: en la app real vienen del servidor. */

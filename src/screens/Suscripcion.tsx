@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { TextField } from '../components/Field';
 import { Icon } from '../components/Icon';
 import { ActionBar, Screen } from '../components/Screen';
+import { useAppState } from '../state/AppState';
 import './screens.css';
 
 const PLAN_PRICE = '$3.99';
@@ -15,10 +16,13 @@ const BENEFITS = [
 ];
 
 export function Suscripcion() {
+  const { myBarber, createMyBarber } = useAppState();
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [zone, setZone] = useState('');
   const [errors, setErrors] = useState<{ name?: string; zone?: string }>({});
-  const [sent, setSent] = useState(false);
+
+  if (myBarber) return <Navigate to="/mi-perfil" replace />;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -28,15 +32,16 @@ export function Suscripcion() {
     };
     setErrors(next);
     if (next.name || next.zone) return;
-    // TODO: conectar con el cobro y la creación de cuenta.
-    setSent(true);
+    // TODO: cobrar la suscripción antes de crear la cuenta.
+    createMyBarber(name.trim(), zone.trim());
+    navigate('/mi-perfil', { replace: true, state: { welcome: true } });
   };
 
   return (
     <Screen
       footer={
         <ActionBar>
-          <Button type="submit" form="plan-form" disabled={sent}>
+          <Button type="submit" form="plan-form">
             Crear mi cuenta · {PLAN_PRICE}/mes
           </Button>
           <span className="t-detail fine-print">[TÉRMINOS DE COBRO Y CANCELACIÓN]</span>
@@ -66,30 +71,23 @@ export function Suscripcion() {
         ))}
       </ul>
 
-      {sent ? (
-        <div className="notice" role="status">
-          <Icon name="check" size={20} strokeWidth={2.2} />
-          Listo, {name.trim()}. Te avisamos cuando tu perfil esté publicado.
-        </div>
-      ) : (
-        <form id="plan-form" className="stack-14" onSubmit={submit} noValidate>
-          <TextField
-            label="Tu nombre o el de tu barbería"
-            placeholder="Carlos M."
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            error={errors.name}
-            autoComplete="organization"
-          />
-          <TextField
-            label="Barrio o zona"
-            placeholder="Bella Vista"
-            value={zone}
-            onChange={(e) => setZone(e.target.value)}
-            error={errors.zone}
-          />
-        </form>
-      )}
+      <form id="plan-form" className="stack-14" onSubmit={submit} noValidate>
+        <TextField
+          label="Tu nombre o el de tu barbería"
+          placeholder="Carlos M."
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          error={errors.name}
+          autoComplete="organization"
+        />
+        <TextField
+          label="Barrio o zona"
+          placeholder="Bella Vista"
+          value={zone}
+          onChange={(e) => setZone(e.target.value)}
+          error={errors.zone}
+        />
+      </form>
     </Screen>
   );
 }

@@ -324,3 +324,40 @@
   font: 500 16px/20px var(--font-body);
   color: var(--color-muted);
 }
+
+/* ---------- Modo barbero ---------- */
+.owner-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.owner-head__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  flex: none;
+}
+
+.button-pair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.button-pair--row {
+  flex-direction: row;
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { formatPrice, getBarber, takenHours } from '../data/barbers';
+import { formatDistance, formatPrice, takenHours } from '../data/barbers';
 import { formatHour, isSameDay, nextWorkDays, weekdayShort } from '../data/dates';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
@@ -13,9 +13,9 @@ import './screens.css';
 /* Apartar en tres toques: servicio, hora, confirmar. */
 export function Reservar() {
   const { id } = useParams();
-  const barber = getBarber(id);
   const navigate = useNavigate();
-  const { book } = useAppState();
+  const { book, getBarber } = useAppState();
+  const barber = getBarber(id);
 
   const days = useMemo(() => (barber ? nextWorkDays(barber.workDays, 5) : []), [barber]);
   const [serviceId, setServiceId] = useState(barber?.services[0]?.id ?? '');
@@ -65,9 +65,7 @@ export function Reservar() {
         <Photo src={barber.avatar} alt="" label="" className="mini-barber__photo" />
         <div className="mini-barber__body">
           <span className="mini-barber__name">{barber.name}</span>
-          <span className="t-detail">
-            {barber.distanceKm.toFixed(1)} km · {barber.area}
-          </span>
+          <span className="t-detail">{formatDistance(barber)}</span>
         </div>
       </div>
 
