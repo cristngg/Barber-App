@@ -8,6 +8,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dataDir = resolve(process.env.DATA_DIR ?? resolve(root, 'data'));
 mkdirSync(dataDir, { recursive: true });
 
+const devLogin = process.env.DEV_LOGIN === '1';
+if (devLogin && process.env.NODE_ENV === 'production') {
+  throw new Error('DEV_LOGIN=1 deja entrar a cualquiera sin Google: no se permite en producción.');
+}
+if (!process.env.GOOGLE_CLIENT_ID) {
+  console.warn('Falta GOOGLE_CLIENT_ID: nadie podrá entrar con Google.');
+}
+
 const db = openDb(resolve(dataDir, 'filo.db'));
 if (process.env.SEED_DEMO !== '0') seedDemo(db);
 
@@ -16,6 +24,8 @@ const app = createApp({
   uploadDir: resolve(dataDir, 'uploads'),
   timeZone: process.env.BUSINESS_TZ ?? 'America/Panama',
   staticDir: resolve(root, 'dist'),
+  googleClientId: process.env.GOOGLE_CLIENT_ID || undefined,
+  devLogin,
 });
 
 const port = Number(process.env.PORT ?? 3001);

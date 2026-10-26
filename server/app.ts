@@ -1,14 +1,17 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import express, { type NextFunction, type Request, type Response } from 'express';
+import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import { OAuth2Client } from 'google-auth-library';
 import { transaction, type DB } from './db.js';
 
 /*
  * API de Filo.
- * Identidad: cada teléfono recibe un token anónimo (POST /api/session) y lo manda como
- * `Authorization: Bearer <token>`. El token es la llave del perfil de barbero y de las citas.
+ * Identidad: la persona entra con Google (POST /api/auth/google). El servidor verifica el token
+ * de Google y entrega un token de sesión propio, que la app manda como `Authorization: Bearer <token>`.
  */
+
+export type GoogleProfile = { sub: string; email?: string; name?: string; picture?: string };
 
 export type AppOptions = {
   db: DB;
@@ -17,7 +20,17 @@ export type AppOptions = {
   timeZone?: string;
   /* Carpeta con la app compilada (dist). Si existe, se sirve en la misma dirección. */
   staticDir?: string;
+  /* ID de cliente OAuth de Google (Google Cloud Console → Credenciales). Sin él, no se puede entrar con Google. */
+  googleClientId?: string;
+  /* Solo desarrollo: permite entrar con un nombre, sin Google. */
+  devLogin?: boolean;
+  /* Verifica el token de Google; reemplazable en pruebas. */
+  verifyGoogle?: (credential: string) => Promise<GoogleProfile>;
 };
+
+/* Una sesión sin uso en este tiempo deja de valer. */
+const SESSION_IDLE_MS = 180 * 24 * 60 * 60 * 1000;
+const TOUCH_EVERY_MS = 60 * 60 * 1000;
 
 const SPECIALTIES: Record<string, string> = {
   fade: 'Fade',
@@ -50,6 +63,22 @@ type Row = Record<string, unknown>;
 type AuthedRequest = Request & { userId?: string };
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+
+/* Express 4 no atrapa errores de funciones async: los pasamos a `next`. */
+const handle =
+  (fn: (req: AuthedRequest, res: Response) => Promise<void>): RequestHandler =>
+  (req, res, next) =>
+    fn(req, res).catch(next);
+
+function googleVerifier(clientId: string) {
+  const client = new OAuth2Client(clientId);
+  return async (credential: string): Promise<GoogleProfile> => {
+    const ticket = await client.verifyIdToken({ idToken: credential, audience: clientId });
+    const p = ticket.getPayload();
+    if (!p?.sub) throw new Error('Token de Google sin usuario');
+    return { sub: p.sub, email: p.email, name: p.name, picture: p.picture };
+  };
+}
 
 /* "Hoy" y la hora actual en la zona del negocio. */
 function nowIn(timeZone: string) {
@@ -161,12 +190,24 @@ function toAppointment(row: Row) {
   };
 }
 
-export function createApp({ db, uploadDir, timeZone = 'America/Panama', staticDir }: AppOptions) {
+export function createApp({
+  db,
+  uploadDir,
+  timeZone = 'America/Panama',
+  staticDir,
+  googleClientId,
+  devLogin = false,
+  verifyGoogle = googleClientId ? googleVerifier(googleClientId) : undefined,
+}: AppOptions) {
   mkdirSync(uploadDir, { recursive: true });
 
   const q = {
-    userByToken: db.prepare('SELECT id FROM users WHERE token_hash = ?'),
-    insertUser: db.prepare('INSERT INTO users (id, token_hash, created_at) VALUES (?, ?, ?)'),
+    session: db.prepare('SELECT user_id, last_seen FROM sessions WHERE token_hash = ?'),
+    touchSession: db.prepare('UPDATE sessions SET last_seen = ? WHERE token_hash = ?'),
+    insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, last_seen) VALUES (?, ?, ?, ?)'),
+    deleteSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
+    user: db.prepare('SELECT id, email, name, picture FROM users WHERE id = ?'),
+    userByGoogle: db.prepare('SELECT id FROM users WHERE google_sub = ?'),
     barbers: db.prepare('SELECT * FROM barbers ORDER BY created_at'),
     barber: db.prepare('SELECT * FROM barbers WHERE id = ?'),
     barberByOwner: db.prepare('SELECT * FROM barbers WHERE owner_id = ?'),
@@ -216,13 +257,50 @@ export function createApp({ db, uploadDir, timeZone = 'America/Panama', staticDi
 
   /* --- Autenticación --- */
 
-  const auth = (req: AuthedRequest, _res: Response, next: NextFunction) => {
+  const bearer = (req: Request) => {
     const header = req.get('authorization') ?? '';
-    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    const row = token ? (q.userByToken.get(hashToken(token)) as Row | undefined) : undefined;
-    if (!row) return next(new HttpError(401, 'Sesión no válida.'));
-    req.userId = row.id as string;
+    return header.startsWith('Bearer ') ? header.slice(7) : '';
+  };
+
+  const auth = (req: AuthedRequest, _res: Response, next: NextFunction) => {
+    const token = bearer(req);
+    const hash = token ? hashToken(token) : '';
+    const row = hash ? (q.session.get(hash) as Row | undefined) : undefined;
+    const now = Date.now();
+    if (!row || now - (row.last_seen as number) > SESSION_IDLE_MS) {
+      if (row) q.deleteSession.run(hash);
+      return next(new HttpError(401, 'Entra con tu cuenta para seguir.'));
+    }
+    if (now - (row.last_seen as number) > TOUCH_EVERY_MS) q.touchSession.run(now, hash);
+    req.userId = row.user_id as string;
     next();
+  };
+
+  const toUser = (id: string) => {
+    const u = q.user.get(id) as Row;
+    return { id, email: u.email as string | null, name: u.name as string | null, picture: u.picture as string | null };
+  };
+
+  /* Crea o actualiza la persona según su cuenta de Google y le abre una sesión. */
+  const signIn = (profile: GoogleProfile) => {
+    const now = Date.now();
+    const userId = transaction(db, () => {
+      const existing = q.userByGoogle.get(profile.sub) as Row | undefined;
+      if (existing) {
+        db.prepare('UPDATE users SET email = ?, name = ?, picture = ? WHERE id = ?').run(
+          profile.email ?? null, profile.name ?? null, profile.picture ?? null, existing.id as string,
+        );
+        return existing.id as string;
+      }
+      const id = randomUUID();
+      db.prepare('INSERT INTO users (id, google_sub, email, name, picture, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+        id, profile.sub, profile.email ?? null, profile.name ?? null, profile.picture ?? null, now,
+      );
+      return id;
+    });
+    const token = randomBytes(32).toString('base64url');
+    q.insertSession.run(hashToken(token), userId, now, now);
+    return { token, user: toUser(userId) };
   };
 
   const myBarberRow = (userId: string) => {
@@ -231,11 +309,39 @@ export function createApp({ db, uploadDir, timeZone = 'America/Panama', staticDi
     return row;
   };
 
-  app.post('/api/session', (_req, res) => {
-    const token = randomBytes(32).toString('base64url');
-    const id = randomUUID();
-    q.insertUser.run(id, hashToken(token), Date.now());
-    res.status(201).json({ token, userId: id });
+  /* Lo que la app necesita saber para mostrar el inicio de sesión. */
+  app.get('/api/config', (_req, res) => {
+    res.json({ googleClientId: googleClientId ?? null, devLogin });
+  });
+
+  app.post(
+    '/api/auth/google',
+    handle(async (req, res) => {
+      if (!verifyGoogle) throw new HttpError(503, 'El inicio con Google todavía no está configurado.');
+      const credential = req.body?.credential;
+      if (typeof credential !== 'string' || !credential) throw new HttpError(400, 'Falta la credencial de Google.');
+      let profile: GoogleProfile;
+      try {
+        profile = await verifyGoogle(credential);
+      } catch {
+        throw new HttpError(401, 'Google no confirmó tu cuenta. Prueba otra vez.');
+      }
+      res.status(201).json(signIn(profile));
+    }),
+  );
+
+  if (devLogin) {
+    app.post('/api/auth/dev', (req, res) => {
+      const name = text(req.body?.name, 'tu nombre', { max: 40 });
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      res.status(201).json(signIn({ sub: `dev:${slug}`, name, email: `${slug}@prueba.local` }));
+    });
+  }
+
+  app.post('/api/auth/logout', (req, res) => {
+    const token = bearer(req);
+    if (token) q.deleteSession.run(hashToken(token));
+    res.json({ ok: true });
   });
 
   /* --- Público: barberos y disponibilidad --- */
@@ -272,7 +378,7 @@ export function createApp({ db, uploadDir, timeZone = 'America/Panama', staticDi
   /* --- Mi cuenta --- */
 
   app.get('/api/me', auth, (req: AuthedRequest, res) => {
-    res.json({ userId: req.userId, barber: loadBarber(q.barberByOwner.get(req.userId!) as Row | undefined) });
+    res.json({ user: toUser(req.userId!), barber: loadBarber(q.barberByOwner.get(req.userId!) as Row | undefined) });
   });
 
   app.post('/api/me/barber', auth, (req: AuthedRequest, res) => {

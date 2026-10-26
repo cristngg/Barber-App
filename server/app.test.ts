@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { createApp } from './app.js';
 import { openDb, seedDemo } from './db.js';
 
@@ -16,7 +17,13 @@ before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'filo-test-'));
   const db = openDb(join(dir, 'test.db'));
   seedDemo(db);
-  server = createApp({ db, uploadDir: join(dir, 'uploads') }).listen(0);
+  /* Google falso: la credencial "google:<sub>" es válida, cualquier otra no. */
+  const verifyGoogle = async (credential: string) => {
+    if (!credential.startsWith('google:')) throw new Error('inválida');
+    const sub = credential.slice('google:'.length);
+    return { sub, email: `${sub}@gmail.com`, name: `Persona ${sub}` };
+  };
+  server = createApp({ db, uploadDir: join(dir, 'uploads'), googleClientId: 'test', verifyGoogle }).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://localhost:${(server.address() as AddressInfo).port}`;
 });
@@ -41,7 +48,10 @@ async function api(path: string, { token, method = 'GET', body, type }: { token?
   return { status: res.status, json: (await res.json()) as any };
 }
 
-const session = async () => (await api('/api/session', { method: 'POST' })).json.token as string;
+let people = 0;
+const signIn = async (sub: string) => (await api('/api/auth/google', { method: 'POST', body: { credential: `google:${sub}` } })).json;
+/* Una persona nueva con sesión abierta. */
+const session = async () => (await signIn(`p${++people}`)).token as string;
 
 /* Próxima fecha (a partir de mañana) que cae en uno de `days`. */
 function nextDate(days: number[]) {
@@ -69,6 +79,54 @@ describe('Filo API', () => {
   it('pide sesión para lo privado', async () => {
     assert.equal((await api('/api/me')).status, 401);
     assert.equal((await api('/api/me', { token: 'inventado' })).status, 401);
+    assert.equal((await api('/api/session', { method: 'POST' })).status, 404, 'ya no hay sesiones anónimas');
+  });
+
+  it('entra con Google y la misma cuenta sirve en otro teléfono', async () => {
+    const bad = await api('/api/auth/google', { method: 'POST', body: { credential: 'falsa' } });
+    assert.equal(bad.status, 401);
+
+    const phone1 = await signIn('misma');
+    assert.equal(phone1.user.email, 'misma@gmail.com');
+    await api('/api/me/barber', { token: phone1.token, method: 'POST', body: { name: 'Dos Teléfonos', area: 'Z' } });
+
+    const phone2 = await signIn('misma');
+    assert.notEqual(phone2.token, phone1.token);
+    assert.equal(phone2.user.id, phone1.user.id);
+    const me = await api('/api/me', { token: phone2.token });
+    assert.equal(me.json.barber.name, 'Dos Teléfonos');
+
+    await api('/api/auth/logout', { token: phone1.token, method: 'POST' });
+    assert.equal((await api('/api/me', { token: phone1.token })).status, 401, 'cerrar sesión invalida ese token');
+    assert.equal((await api('/api/me', { token: phone2.token })).status, 200, 'el otro teléfono sigue dentro');
+  });
+
+  it('sin Google configurado no deja entrar', async () => {
+    const off = createApp({ db: openDb(join(dir, 'off.db')), uploadDir: join(dir, 'off') }).listen(0);
+    await new Promise((r) => off.once('listening', r));
+    const url = `http://localhost:${(off.address() as AddressInfo).port}`;
+    const config = await (await fetch(url + '/api/config')).json();
+    assert.deepEqual(config, { googleClientId: null, devLogin: false });
+    const res = await fetch(url + '/api/auth/google', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential: 'google:x' }),
+    });
+    assert.equal(res.status, 503);
+    assert.equal((await fetch(url + '/api/auth/dev', { method: 'POST' })).status, 404);
+    off.close();
+  });
+
+  it('migra una base con sesiones anónimas', async () => {
+    const file = join(dir, 'vieja.db');
+    const old = new DatabaseSync(file);
+    old.exec(`CREATE TABLE users (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL);
+              INSERT INTO users VALUES ('u1', 'hash1', 1);`);
+    old.close();
+    const db = openDb(file);
+    assert.deepEqual({ ...(db.prepare('SELECT user_id FROM sessions WHERE token_hash = ?').get('hash1') as object) }, { user_id: 'u1' });
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM pragma_table_info('users') WHERE name = 'google_sub'").get()!.n, 1);
+    db.close();
   });
 
   it('un barbero crea su perfil, sube fotos y pone precios', async () => {

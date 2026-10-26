@@ -693,3 +693,61 @@
   justify-content: center;
   padding: 0;
 }
+
+/* ---------- Entrar ---------- */
+.signin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* El botón de Google lo dibuja Google; aquí solo se reserva su alto para que no salte la página. */
+.signin__google {
+  min-height: 44px;
+  display: flex;
+  justify-content: center;
+}
+
+.signin__dev {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-line);
+}
+
+.signin__reason {
+  color: var(--color-muted);
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: var(--card-shadow);
+}
+
+.user-row__avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  flex: none;
+  object-fit: cover;
+}
+
+.user-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.user-row__body > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

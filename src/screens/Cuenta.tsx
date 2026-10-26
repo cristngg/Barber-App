@@ -1,13 +1,15 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { BottomNav } from '../components/BottomNav';
+import { Button } from '../components/Button';
 import { Chip, ChipRow } from '../components/Chip';
 import { Icon } from '../components/Icon';
 import { Screen, SectionHeader } from '../components/Screen';
+import { SignInPanel } from '../components/SignIn';
 import { useAppState, type Mode } from '../state/AppState';
 import './screens.css';
 
 export function Cuenta() {
-  const { theme, setTheme, mode, setMode, myBarber } = useAppState();
+  const { theme, setTheme, mode, setMode, myBarber, user, signOut } = useAppState();
   const navigate = useNavigate();
 
   const switchMode = (next: Mode) => {
@@ -18,6 +20,30 @@ export function Cuenta() {
   return (
     <Screen footer={<BottomNav />}>
       <h1 className="t-title">Cuenta</h1>
+
+      {user ? (
+        <section className="stack-12">
+          <div className="user-row">
+            {user.picture ? (
+              <img src={user.picture} alt="" className="user-row__avatar" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="user-row__avatar photo" aria-hidden="true" />
+            )}
+            <div className="user-row__body">
+              <span className="t-card-title">{user.name ?? 'Sin nombre'}</span>
+              {user.email && <span className="t-detail">{user.email}</span>}
+            </div>
+          </div>
+          <Button variant="secondary" onClick={() => signOut().then(() => navigate('/'))}>
+            Cerrar sesión
+          </Button>
+        </section>
+      ) : (
+        <section className="stack-12">
+          <SectionHeader title="Entra a Filo" />
+          <SignInPanel />
+        </section>
+      )}
 
       {myBarber && (
         <section className="stack-12">

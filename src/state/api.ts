@@ -1,7 +1,7 @@
 import type { Barber } from '../data/barbers';
 import { load, save } from './storage';
 
-/* Cliente de la API. El token anónimo de este teléfono vive en localStorage. */
+/* Cliente de la API. El token de sesión de este teléfono vive en localStorage. */
 
 export type Appointment = {
   id: string;
@@ -15,6 +15,10 @@ export type Appointment = {
   status: 'pending' | 'confirmed' | 'cancelled';
   createdAt: number;
 };
+
+export type User = { id: string; email: string | null; name: string | null; picture: string | null };
+
+export type Config = { googleClientId: string | null; devLogin: boolean };
 
 export type BarberPatch = Partial<
   Pick<Barber, 'name' | 'area' | 'bio' | 'tags' | 'workDays' | 'freeToday'> & { avatar: string | null; cover: string | null }
@@ -34,43 +38,48 @@ export class ApiError extends Error {
 const TOKEN_KEY = 'filo.token';
 const OFFLINE = 'No hay conexión. Revisa tu internet y prueba otra vez.';
 
-let token: string | null = load<string | null>(TOKEN_KEY, null);
-let pendingSession: Promise<string> | null = null;
+const SIGNED_OUT = 'Entra con tu cuenta para seguir.';
 
-async function send(path: string, init: RequestInit, auth: boolean): Promise<Response> {
-  const headers = new Headers(init.headers);
-  if (auth) headers.set('authorization', `Bearer ${await ensureSession()}`);
-  try {
-    return await fetch(path, { ...init, headers });
-  } catch {
-    throw new ApiError(0, OFFLINE);
-  }
+let token: string | null = load<string | null>(TOKEN_KEY, null);
+let onSignedOut: () => void = () => {};
+
+export const hasSession = () => token != null;
+
+function setToken(next: string | null) {
+  token = next;
+  save(TOKEN_KEY, next);
+}
+
+/* AppState se entera cuando el servidor da por cerrada la sesión. */
+export function onSessionExpired(fn: () => void) {
+  onSignedOut = fn;
 }
 
 async function request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
-  let res = await send(path, init, auth);
-  if (res.status === 401 && auth) {
-    /* El servidor no reconoce el token (p. ej. se reinició la base): pedimos otro una vez. */
-    token = null;
-    res = await send(path, init, auth);
+  const headers = new Headers(init.headers);
+  if (auth) {
+    if (!token) throw new ApiError(401, SIGNED_OUT);
+    headers.set('authorization', `Bearer ${token}`);
+  }
+  let res: Response;
+  try {
+    res = await fetch(path, { ...init, headers });
+  } catch {
+    throw new ApiError(0, OFFLINE);
   }
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
+  if (res.status === 401 && auth) {
+    setToken(null);
+    onSignedOut();
+  }
   if (!res.ok) throw new ApiError(res.status, data?.error ?? 'Algo falló. Prueba otra vez.');
   return data as T;
 }
 
-function ensureSession(): Promise<string> {
-  if (token) return Promise.resolve(token);
-  pendingSession ??= request<{ token: string }>('/api/session', { method: 'POST' }, false)
-    .then((s) => {
-      token = s.token;
-      save(TOKEN_KEY, token);
-      return token;
-    })
-    .finally(() => {
-      pendingSession = null;
-    });
-  return pendingSession;
+async function startSession(path: string, body: unknown) {
+  const s = await request<{ token: string; user: User }>(path, json('POST', body), false);
+  setToken(s.token);
+  return s.user;
 }
 
 const json = (method: string, body?: unknown): RequestInit => ({
@@ -80,12 +89,23 @@ const json = (method: string, body?: unknown): RequestInit => ({
 });
 
 export const api = {
+  config: () => request<Config>('/api/config', {}, false),
+  signInWithGoogle: (credential: string) => startSession('/api/auth/google', { credential }),
+  signInDev: (name: string) => startSession('/api/auth/dev', { name }),
+  signOut: async () => {
+    const current = token;
+    setToken(null);
+    if (current) {
+      await fetch('/api/auth/logout', { method: 'POST', headers: { authorization: `Bearer ${current}` } }).catch(() => {});
+    }
+  },
+
   barbers: () => request<Barber[]>('/api/barbers', {}, false),
   barber: (id: string) => request<Barber>(`/api/barbers/${encodeURIComponent(id)}`, {}, false),
   availability: (id: string, date: string) =>
     request<{ date: string; taken: number[] }>(`/api/barbers/${encodeURIComponent(id)}/availability?date=${date}`, {}, false),
 
-  me: () => request<{ userId: string; barber: Barber | null }>('/api/me'),
+  me: () => request<{ user: User; barber: Barber | null }>('/api/me'),
   createBarber: (name: string, area: string) => request<Barber>('/api/me/barber', json('POST', { name, area })),
   updateBarber: (patch: BarberPatch) => request<Barber>('/api/me/barber', json('PATCH', patch)),
   addService: (s: ServiceInput) => request<Barber>('/api/me/barber/services', json('POST', s)),

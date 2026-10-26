@@ -11,7 +11,7 @@ Necesita Node 22.13 o más nuevo (usa la base SQLite que trae Node).
 npm install
 
 # Desarrollo: dos terminales
-npm run dev:server   # API en http://localhost:3001
+npm run dev:server   # API en http://localhost:3001 (con "Entrar de prueba" activado)
 npm run dev          # app en http://localhost:5173 (pasa /api y /uploads al servidor)
 
 # Producción: un solo proceso sirve la API, las fotos y la app
@@ -29,6 +29,21 @@ npm test             # pruebas de la API
 | `DATA_DIR` | `./data` | Carpeta de la base (`filo.db`) y las fotos (`uploads/`). En producción debe ser un disco persistente. |
 | `BUSINESS_TZ` | `America/Panama` | Zona horaria que define qué es "hoy" y qué horas ya pasaron |
 | `SEED_DEMO` | `1` | Con `0`, no crea los 3 barberos de ejemplo en una base vacía |
+| `GOOGLE_CLIENT_ID` | (vacío) | ID de cliente OAuth de Google. Sin él, nadie puede entrar con Google. |
+| `DEV_LOGIN` | `0` | Con `1`, muestra "Entrar de prueba" (entrar con un nombre, sin Google). Solo para desarrollo: el servidor no arranca si está activo con `NODE_ENV=production`. |
+
+### Configurar "Continuar con Google"
+
+1. Entra a [Google Cloud Console](https://console.cloud.google.com/), crea un proyecto (o usa uno) y abre **APIs y servicios → Pantalla de consentimiento de OAuth**. Elige "Externo" y pon el nombre de la app (Filo), tu correo de soporte y el logo si quieres.
+2. En **APIs y servicios → Credenciales → Crear credenciales → ID de cliente de OAuth**, elige **Aplicación web**.
+3. En **Orígenes de JavaScript autorizados** agrega cada dirección desde donde se abre la app, por ejemplo `http://localhost:5173`, `http://localhost:3001` y tu dominio de producción (`https://tu-dominio.com`). No hace falta ninguna URI de redireccionamiento.
+4. Copia el **ID de cliente** (termina en `.apps.googleusercontent.com`) y arranca el servidor con él:
+
+```bash
+GOOGLE_CLIENT_ID=1234-abcd.apps.googleusercontent.com npm run dev:server
+```
+
+Mientras la pantalla de consentimiento esté "en prueba", solo entran los correos que agregues como usuarios de prueba; publícala para abrirla a todos.
 
 ## Hospedar
 
@@ -36,7 +51,7 @@ Cualquier servicio que corra Docker con un **volumen persistente** montado en `/
 
 ```bash
 docker build -t filo .
-docker run -p 3001:3001 -v filo-data:/data filo
+docker run -p 3001:3001 -v filo-data:/data -e GOOGLE_CLIENT_ID=... filo
 ```
 
 Sin volumen persistente, cada reinicio borra los perfiles, las fotos y las citas.
@@ -54,7 +69,8 @@ Sin volumen persistente, cada reinicio borra los perfiles, las fotos y las citas
 
 ## Servidor
 
-- **Identidad:** cada teléfono pide un token anónimo (`POST /api/session`) y lo guarda. Ese token es la llave de su perfil de barbero y de sus citas. Si se borran los datos del navegador, se pierde el acceso: falta un inicio de sesión real (teléfono o correo).
+- **Identidad:** se entra con Google. La app recibe una credencial de Google, el servidor la verifica con `google-auth-library` y entrega un token de sesión propio (se guarda solo su hash). La cuenta de barbero y las citas quedan ligadas a la cuenta de Google, así que se recuperan desde cualquier teléfono. Una sesión sin uso en 180 días vence; "Cerrar sesión" la borra del servidor.
+- **Qué pide entrar:** ver barberos y perfiles no; apartar cita, ver mis citas y todo lo del barbero sí.
 - **Citas:** el servidor valida que el barbero atienda ese día, que la hora no haya pasado y que nadie la haya tomado (una hora solo se aparta una vez; cancelar la libera).
 - **Fotos:** solo se aceptan JPEG, PNG o WebP de hasta 6 MB, y cada quien solo puede usar las fotos que subió. Al reemplazar o quitar una foto, el servidor la borra.
 
@@ -70,7 +86,7 @@ En Cuenta se cambia entre usar Filo como cliente o como barbero.
 
 ## Pendiente
 
-- Inicio de sesión real (teléfono o correo) para no depender del token del navegador.
+- Más formas de entrar (teléfono, correo, Apple).
 - Cobro de la suscripción y `[TÉRMINOS DE COBRO Y CANCELACIÓN]`.
 - Distancia real (ubicación del cliente y del barbero); hoy los perfiles nuevos muestran solo el barrio.
 - Límite de solicitudes por IP antes de abrirlo al público.

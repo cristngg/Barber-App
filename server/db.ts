@@ -10,9 +10,21 @@ export type DB = DatabaseSync;
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  token_hash TEXT NOT NULL UNIQUE,
+  google_sub TEXT UNIQUE,
+  email TEXT,
+  name TEXT,
+  picture TEXT,
   created_at INTEGER NOT NULL
 );
+
+-- Una fila por teléfono con sesión abierta. Se guarda el hash del token, nunca el token.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 
 CREATE TABLE IF NOT EXISTS barbers (
   id TEXT PRIMARY KEY,
@@ -73,8 +85,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS appointments_slot
 export function openDb(file: string): DB {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+  migrateAnonymousUsers(db);
   db.exec(SCHEMA);
   return db;
+}
+
+/*
+ * Bases creadas antes del inicio con Google guardaban el token dentro de `users`.
+ * Esas sesiones anónimas pasan a `sessions` y `users` se rehace con las columnas de Google.
+ */
+function migrateAnonymousUsers(db: DB) {
+  const columns = db.prepare("SELECT name FROM pragma_table_info('users')").all() as { name: string }[];
+  if (!columns.some((c) => c.name === 'token_hash')) return;
+  db.exec('PRAGMA foreign_keys = OFF');
+  transaction(db, () => {
+    db.exec(`
+      CREATE TABLE sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL
+      );
+      INSERT INTO sessions SELECT token_hash, id, created_at, created_at FROM users;
+      CREATE TABLE users_new (
+        id TEXT PRIMARY KEY,
+        google_sub TEXT UNIQUE,
+        email TEXT,
+        name TEXT,
+        picture TEXT,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO users_new (id, created_at) SELECT id, created_at FROM users;
+      DROP TABLE users;
+      ALTER TABLE users_new RENAME TO users;
+    `);
+  });
+  db.exec('PRAGMA foreign_keys = ON');
 }
 
 /* Corre `fn` dentro de una transacción. */

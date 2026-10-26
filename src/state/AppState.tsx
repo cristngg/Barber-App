@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Barber } from '../data/barbers';
-import { api, type Appointment, type BarberPatch, type ServiceInput } from './api';
+import { api, ApiError, hasSession, onSessionExpired, type Appointment, type BarberPatch, type Config, type ServiceInput, type User } from './api';
 import { load, save } from './storage';
 
-export type { Appointment } from './api';
+export type { Appointment, User } from './api';
 export type Theme = 'dark' | 'light';
 export type Mode = 'client' | 'barber';
 export type Status = 'loading' | 'ready' | 'offline';
@@ -11,6 +11,12 @@ export type Status = 'loading' | 'ready' | 'offline';
 type AppState = {
   status: Status;
   retry: () => void;
+  config: Config;
+  /* La persona con sesión abierta, o null si no ha entrado. */
+  user: User | null;
+  signInWithGoogle: (credential: string) => Promise<void>;
+  signInDev: (name: string) => Promise<void>;
+  signOut: () => Promise<void>;
   theme: Theme;
   setTheme: (theme: Theme) => void;
   mode: Mode;
@@ -44,6 +50,25 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [myBarber, setMyBarber] = useState<Barber | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [config, setConfig] = useState<Config>({ googleClientId: null, devLogin: false });
+  const [user, setUser] = useState<User | null>(null);
+
+  const clearSession = useCallback(() => {
+    setUser(null);
+    setMyBarber(null);
+    setAppointments([]);
+    setMode('client');
+  }, []);
+
+  useEffect(() => onSessionExpired(clearSession), [clearSession]);
+
+  /* Con sesión: quién soy, mi perfil de barbero y mis citas. */
+  const loadMine = useCallback(async () => {
+    const [me, appts] = await Promise.all([api.me(), api.appointments()]);
+    setUser(me.user);
+    setMyBarber(me.barber);
+    setAppointments(appts);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -53,23 +78,50 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => save(MODE_KEY, mode), [mode]);
 
-  /* Carga inicial: barberos, mi perfil y mis citas. */
+  /* Carga inicial: configuración y barberos; lo mío solo si hay sesión. */
   useEffect(() => {
     let alive = true;
     setStatus('loading');
-    Promise.all([api.barbers(), api.me(), api.appointments()])
-      .then(([list, me, appts]) => {
+    const mine = hasSession()
+      ? loadMine().catch((err) => {
+          if (err instanceof ApiError && err.status === 401) return; // sesión vencida: entra de nuevo
+          throw err;
+        })
+      : Promise.resolve();
+    Promise.all([api.config(), api.barbers(), mine])
+      .then(([cfg, list]) => {
         if (!alive) return;
+        setConfig(cfg);
         setBarbers(list);
-        setMyBarber(me.barber);
-        setAppointments(appts);
         setStatus('ready');
       })
       .catch(() => alive && setStatus('offline'));
     return () => {
       alive = false;
     };
-  }, [attempt]);
+  }, [attempt, loadMine]);
+
+  const signInWithGoogle = useCallback(
+    async (credential: string) => {
+      await api.signInWithGoogle(credential);
+      await loadMine();
+    },
+    [loadMine],
+  );
+
+  const signInDev = useCallback(
+    async (name: string) => {
+      await api.signInDev(name);
+      await loadMine();
+    },
+    [loadMine],
+  );
+
+  const signOut = useCallback(async () => {
+    await api.signOut();
+    window.google?.accounts.id.disableAutoSelect();
+    clearSession();
+  }, [clearSession]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -123,6 +175,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     () => ({
       status,
       retry,
+      config,
+      user,
+      signInWithGoogle,
+      signInDev,
+      signOut,
       theme,
       setTheme,
       mode,
@@ -140,7 +197,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       book,
       cancel,
     }),
-    [status, retry, theme, mode, barbers, getBarber, refreshBarbers, myBarber, createMyBarber, updateMyBarber,
+    [status, retry, config, user, signInWithGoogle, signInDev, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, createMyBarber, updateMyBarber,
       saveService, removeService, appointments, refreshAppointments, book, cancel],
   );
 

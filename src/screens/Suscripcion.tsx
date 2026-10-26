@@ -17,9 +17,9 @@ const BENEFITS = [
 ];
 
 export function Suscripcion() {
-  const { myBarber, createMyBarber } = useAppState();
+  const { myBarber, createMyBarber, user } = useAppState();
   const navigate = useNavigate();
-  const [name, setName] = useState('');
+  const [name, setName] = useState(user?.name ?? '');
   const [zone, setZone] = useState('');
   const [errors, setErrors] = useState<{ name?: string; zone?: string }>({});
   const [saving, setSaving] = useState(false);
