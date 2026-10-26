@@ -1,0 +1,18 @@
+/* Móvil primero: en pantallas anchas, la app se centra en una columna de teléfono. */
+.app-frame {
+  height: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+@media (min-width: 520px) {
+  body {
+    background: var(--color-surface);
+  }
+
+  .app-frame {
+    border-left: 1px solid var(--color-line);
+    border-right: 1px solid var(--color-line);
+  }
+}

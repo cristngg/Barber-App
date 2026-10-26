@@ -1,0 +1,112 @@
+/*
+ * Filo · tokens del sistema de diseño.
+ * Oscuro es el tema principal ("Tinta, hueso y latón").
+ * Claro es la variante B ("Papel, tinta y latón").
+ */
+
+:root,
+[data-theme='dark'] {
+  /* Color */
+  --color-bg: #0f1012;            /* Tinta · fondo de la app */
+  --color-surface: #17181b;       /* Superficie · tarjetas y hojas */
+  --color-surface-high: #202226;  /* Superficie alta · campos, chips, hover */
+  --color-line: #2a2c30;          /* Línea · divisores y bordes de tarjeta */
+  --color-control: #6b6e75;       /* Borde de control */
+  --color-text: #f2eee6;          /* Hueso · texto principal */
+  --color-muted: #a8a59e;         /* Humo · texto secundario */
+  --color-disabled: #6b6e75;
+
+  --color-brass: #dda94a;         /* Latón · relleno de acción y selección */
+  --color-brass-pressed: #c4903a; /* Latón pulsado */
+  --color-brass-ink: #dda94a;     /* Latón como texto: precio, estrellas */
+  --color-on-brass: #0f1012;
+  --color-polo: #7eb0ee;          /* Azul polo · enlaces, avisos, foco */
+  --color-ok: #6fcf9f;            /* Confirmado */
+  --color-alert: #f0766a;         /* Alerta */
+
+  --tint-brass: rgba(221, 169, 74, 0.14);
+  --tint-polo: rgba(126, 176, 238, 0.14);
+  --tint-ok: rgba(111, 207, 159, 0.14);
+  --tint-alert: rgba(240, 118, 106, 0.14);
+
+  --chip-bg: transparent;
+  --nav-bg: #0f1012;
+  --card-shadow: none;
+  --photo-a: #202226;
+  --photo-b: #1a1b1e;
+  --pin-ring: #0f1012;
+  --me-ring: #0f1012;
+  --me-halo: rgba(126, 176, 238, 0.22);
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --color-bg: #fffdf8;            /* Papel */
+  --color-surface: #ffffff;       /* Blanco · tarjetas */
+  --color-surface-high: #f5f0e6;  /* Arena · campos, chips, hover */
+  --color-line: #e8e1d3;
+  --color-control: #8c8a83;
+  --color-text: #16171a;          /* Tinta */
+  --color-muted: #5c5a55;         /* Piedra */
+  --color-disabled: #8c8a83;
+
+  --color-brass: #f2b72f;
+  --color-brass-pressed: #dca21c;
+  --color-brass-ink: #8a5a00;     /* Latón profundo */
+  --color-on-brass: #16171a;
+  --color-polo: #1f5fbf;
+  --color-ok: #17714a;
+  --color-alert: #b83227;
+
+  --tint-brass: #fbf0d2;
+  --tint-polo: #e8f0fc;
+  --tint-ok: #e3f2ea;
+  --tint-alert: #f9e5e3;
+
+  --chip-bg: #ffffff;
+  --nav-bg: #ffffff;
+  --card-shadow: 0 2px 8px rgba(22, 23, 26, 0.06);
+  --photo-a: #f0eadd;
+  --photo-b: #e8e1d3;
+  --pin-ring: #16171a;
+  --me-ring: #ffffff;
+  --me-halo: rgba(31, 95, 191, 0.18);
+  --scrim: rgba(22, 23, 26, 0.4);
+
+  color-scheme: light;
+}
+
+:root {
+  /* Tipografía */
+  --font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+
+  /* Espacio · base de 4 px */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Esquinas */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  /* Cinta de polo · el único adorno de la marca */
+  --polo-ribbon: repeating-linear-gradient(
+    -45deg,
+    #dda94a 0 8px,
+    #f2eee6 8px 16px,
+    #7eb0ee 16px 24px
+  );
+
+  --touch: 44px;
+  --control-h: 52px;
+}

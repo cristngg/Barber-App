@@ -1,0 +1,326 @@
+.stack-10 {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stack-12 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.stack-14 {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.stack-16 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-6) 0;
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  color: var(--color-muted);
+}
+
+.fine-print {
+  text-align: center;
+}
+
+/* ---------- Explorar ---------- */
+.explore-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.location-btn {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--touch);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--color-polo);
+  font: 600 14px/18px var(--font-body);
+}
+
+.mini-map {
+  position: relative;
+  flex: none;
+  height: 108px;
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-line);
+  overflow: hidden;
+  background-image: linear-gradient(var(--color-surface-high) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-surface-high) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+[data-theme='light'] .mini-map {
+  background-color: var(--color-surface-high);
+  background-image: linear-gradient(var(--color-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+}
+
+.mini-map__label {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font: 600 11px/14px var(--font-body);
+  letter-spacing: 0.1em;
+  color: var(--color-muted);
+}
+
+.mini-map__pin {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--color-brass);
+  border: 3px solid var(--pin-ring);
+}
+
+.mini-map__pin--off {
+  background: var(--color-control);
+}
+
+[data-theme='light'] .mini-map__pin--off {
+  background: #ffffff;
+  border-color: var(--color-control);
+}
+
+.mini-map__me {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--color-polo);
+  border: 3px solid var(--me-ring);
+  outline: 6px solid var(--me-halo);
+}
+
+/* ---------- Perfil ---------- */
+.cover {
+  position: relative;
+  flex: none;
+}
+
+.cover__photo {
+  height: 224px;
+}
+
+.cover__back {
+  position: absolute;
+  left: 12px;
+  top: 52px;
+}
+
+.profile {
+  padding: 20px var(--space-4) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.profile__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.profile__name {
+  margin: 0;
+  font: 700 40px/38px var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.profile__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font: 500 14px/20px var(--font-body);
+  color: var(--color-muted);
+}
+
+.portfolio {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ---------- Reservar ---------- */
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.page-head__back {
+  margin-left: -10px;
+}
+
+.t-title--sm {
+  font-size: 32px;
+  line-height: 32px;
+}
+
+.mini-barber {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  box-shadow: var(--card-shadow);
+}
+
+.mini-barber__photo {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  flex: none;
+}
+
+.mini-barber__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mini-barber__name {
+  font: 600 16px/22px var(--font-body);
+}
+
+.step {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step legend {
+  padding: 0;
+  margin-bottom: 10px;
+}
+
+.day-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.summary__text {
+  font: 500 14px/20px var(--font-body);
+  color: var(--color-muted);
+}
+
+.summary__price {
+  font: 700 24px/24px var(--font-display);
+  letter-spacing: 0.02em;
+  color: var(--color-brass-ink);
+  flex: none;
+}
+
+/* ---------- Cuenta ---------- */
+.promo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--card-shadow);
+  position: relative;
+  overflow: hidden;
+}
+
+.promo > svg {
+  color: var(--color-muted);
+  flex: none;
+}
+
+.promo__ribbon {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 6px;
+  border-radius: 0;
+}
+
+.promo__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- Plan de barbero ---------- */
+.plan-ribbon {
+  width: 96px;
+  height: 8px;
+}
+
+.plan-title {
+  font-size: 48px;
+  line-height: 44px;
+}
+
+.plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.plan-price__amount {
+  font: 700 64px/60px var(--font-display);
+  letter-spacing: 0.01em;
+  color: var(--color-brass-ink);
+}
+
+.plan-price__unit {
+  font: 500 16px/20px var(--font-body);
+  color: var(--color-muted);
+}
