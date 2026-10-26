@@ -7,8 +7,8 @@ import { TextArea, TextField } from '../components/Field';
 import { Icon } from '../components/Icon';
 import { PhotoPicker } from '../components/PhotoPicker';
 import { ActionBar, Screen } from '../components/Screen';
+import { errorMessage } from '../state/api';
 import { useAppState } from '../state/AppState';
-import { deletePhoto } from '../state/photos';
 import './screens.css';
 
 const BIO_MAX = 240;
@@ -27,20 +27,19 @@ const WEEK = [
 type Errors = Partial<Record<'name' | 'area' | 'workDays', string>>;
 
 export function EditarPerfil() {
-  const { myBarber, saveMyBarber } = useAppState();
+  const { myBarber, updateMyBarber } = useAppState();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<Barber | null>(myBarber);
   const [errors, setErrors] = useState<Errors>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string>();
 
   if (!myBarber || !draft) return <Navigate to="/soy-barbero" replace />;
 
   const set = <K extends keyof Barber>(key: K, value: Barber[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d));
 
-  /* Una foto nueva reemplaza a la anterior del borrador; si esa también era nueva, se borra. */
-  const setPhoto = (key: 'cover' | 'avatar', ref: string) => {
-    if (draft[key] !== myBarber[key]) deletePhoto(draft[key]);
-    set(key, ref);
-  };
+  /* La foto anterior la borra el servidor al guardar. */
+  const setPhoto = (key: 'cover' | 'avatar', url: string) => set(key, url);
 
   const toggleTag = (tag: string) => {
     const tags = draft.tags.includes(tag) ? draft.tags.filter((t) => t !== tag) : [...draft.tags, tag];
@@ -54,12 +53,7 @@ export function EditarPerfil() {
   const toggleDay = (day: number) =>
     set('workDays', draft.workDays.includes(day) ? draft.workDays.filter((d) => d !== day) : [...draft.workDays, day]);
 
-  const discard = () => {
-    if (draft.cover !== myBarber.cover) deletePhoto(draft.cover);
-    if (draft.avatar !== myBarber.avatar) deletePhoto(draft.avatar);
-  };
-
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     const next: Errors = {
       name: draft.name.trim() ? undefined : 'Escribe tu nombre o el de tu barbería.',
@@ -67,25 +61,45 @@ export function EditarPerfil() {
       workDays: draft.workDays.length ? undefined : 'Marca al menos un día.',
     };
     setErrors(next);
-    if (Object.values(next).some(Boolean)) return;
-    if (draft.cover !== myBarber.cover) deletePhoto(myBarber.cover);
-    if (draft.avatar !== myBarber.avatar) deletePhoto(myBarber.avatar);
-    saveMyBarber((b) => ({ ...draft, services: b.services, name: draft.name.trim(), area: draft.area.trim(), bio: draft.bio.trim() }));
-    navigate('/mi-perfil');
+    if (Object.values(next).some(Boolean) || saving) return;
+    setSaving(true);
+    setSaveError(undefined);
+    try {
+      await updateMyBarber({
+        name: draft.name,
+        area: draft.area,
+        bio: draft.bio,
+        tags: draft.tags,
+        workDays: draft.workDays,
+        freeToday: draft.freeToday,
+        avatar: draft.avatar ?? null,
+        cover: draft.cover ?? null,
+      });
+      navigate('/mi-perfil');
+    } catch (err) {
+      setSaveError(errorMessage(err));
+      setSaving(false);
+    }
   };
 
   return (
     <Screen
       footer={
         <ActionBar>
-          <Button type="submit" form="profile-form">
-            Guardar cambios
+          {saveError && (
+            <span className="field__error" role="alert">
+              <Icon name="alert" size={16} strokeWidth={2} />
+              {saveError}
+            </span>
+          )}
+          <Button type="submit" form="profile-form" disabled={saving}>
+            {saving ? 'Guardando…' : 'Guardar cambios'}
           </Button>
         </ActionBar>
       }
     >
       <div className="page-head">
-        <Link to="/mi-perfil" onClick={discard} className="icon-btn page-head__back" aria-label="Volver sin guardar">
+        <Link to="/mi-perfil" className="icon-btn page-head__back" aria-label="Volver sin guardar">
           <Icon name="back" size={22} strokeWidth={2} />
         </Link>
         <h1 className="t-title t-title--sm">Editar perfil</h1>

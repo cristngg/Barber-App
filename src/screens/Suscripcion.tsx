@@ -4,6 +4,7 @@ import { Button } from '../components/Button';
 import { TextField } from '../components/Field';
 import { Icon } from '../components/Icon';
 import { ActionBar, Screen } from '../components/Screen';
+import { errorMessage } from '../state/api';
 import { useAppState } from '../state/AppState';
 import './screens.css';
 
@@ -21,28 +22,43 @@ export function Suscripcion() {
   const [name, setName] = useState('');
   const [zone, setZone] = useState('');
   const [errors, setErrors] = useState<{ name?: string; zone?: string }>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string>();
 
   if (myBarber) return <Navigate to="/mi-perfil" replace />;
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     const next = {
       name: name.trim() ? undefined : 'Escribe tu nombre o el de tu barbería.',
       zone: zone.trim() ? undefined : 'Escribe el barrio donde atiendes.',
     };
     setErrors(next);
-    if (next.name || next.zone) return;
-    // TODO: cobrar la suscripción antes de crear la cuenta.
-    createMyBarber(name.trim(), zone.trim());
-    navigate('/mi-perfil', { replace: true, state: { welcome: true } });
+    if (next.name || next.zone || saving) return;
+    setSaving(true);
+    setSaveError(undefined);
+    try {
+      // TODO: cobrar la suscripción antes de crear la cuenta.
+      await createMyBarber(name.trim(), zone.trim());
+      navigate('/mi-perfil', { replace: true, state: { welcome: true } });
+    } catch (err) {
+      setSaveError(errorMessage(err));
+      setSaving(false);
+    }
   };
 
   return (
     <Screen
       footer={
         <ActionBar>
-          <Button type="submit" form="plan-form">
-            Crear mi cuenta · {PLAN_PRICE}/mes
+          {saveError && (
+            <span className="field__error" role="alert">
+              <Icon name="alert" size={16} strokeWidth={2} />
+              {saveError}
+            </span>
+          )}
+          <Button type="submit" form="plan-form" disabled={saving}>
+            {saving ? 'Creando tu cuenta…' : `Crear mi cuenta · ${PLAN_PRICE}/mes`}
           </Button>
           <span className="t-detail fine-print">[TÉRMINOS DE COBRO Y CANCELACIÓN]</span>
         </ActionBar>

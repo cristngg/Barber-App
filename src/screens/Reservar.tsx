@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { formatDistance, formatPrice, takenHours } from '../data/barbers';
+import { formatDistance, formatPrice } from '../data/barbers';
 import { formatHour, isSameDay, nextWorkDays, weekdayShort } from '../data/dates';
+import { api, ApiError, errorMessage } from '../state/api';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Photo } from '../components/Photo';
@@ -21,19 +22,51 @@ export function Reservar() {
   const [serviceId, setServiceId] = useState(barber?.services[0]?.id ?? '');
   const [day, setDay] = useState<Date | undefined>(days[0]);
   const [hour, setHour] = useState<number | null>(null);
+  /* Horas tomadas o ya pasadas del día elegido, según el servidor. null = cargando. */
+  const [taken, setTaken] = useState<number[] | null>(null);
+  const [reload, setReload] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const barberId = barber?.id;
+  const dayISO = day ? toISODate(day) : undefined;
+  useEffect(() => {
+    if (!barberId || !dayISO) return;
+    let alive = true;
+    setTaken(null);
+    api
+      .availability(barberId, dayISO)
+      .then((r) => alive && setTaken(r.taken))
+      .catch((err) => {
+        if (!alive) return;
+        setTaken([]);
+        setError(errorMessage(err));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [barberId, dayISO, reload]);
 
   if (!barber) return <NotFound />;
 
   const service = barber.services.find((s) => s.id === serviceId);
-  const taken = day ? takenHours(barber, day) : [];
-  const now = new Date();
-  const isPast = (h: number) => !!day && isSameDay(day, now) && h <= now.getHours();
   const ready = service && day && hour != null;
 
-  const confirm = () => {
-    if (!ready) return;
-    const appt = book({ barberId: barber.id, serviceId: service.id, date: toISODate(day), hour });
-    navigate('/citas', { state: { justBooked: appt.id } });
+  const confirm = async () => {
+    if (!ready || sending) return;
+    setSending(true);
+    setError(undefined);
+    try {
+      const appt = await book({ barberId: barber.id, serviceId: service.id, date: toISODate(day), hour });
+      navigate('/citas', { state: { justBooked: appt.id } });
+    } catch (err) {
+      setError(errorMessage(err));
+      if (err instanceof ApiError && err.status === 409) {
+        setHour(null);
+        setReload((n) => n + 1);
+      }
+      setSending(false);
+    }
   };
 
   return (
@@ -48,8 +81,14 @@ export function Reservar() {
             </span>
             {service && <span className="summary__price">{formatPrice(service.price)}</span>}
           </div>
-          <Button onClick={confirm} disabled={!ready}>
-            Confirmar cita
+          {error && (
+            <span className="field__error" role="alert">
+              <Icon name="alert" size={16} strokeWidth={2} />
+              {error}
+            </span>
+          )}
+          <Button onClick={confirm} disabled={!ready || sending}>
+            {sending ? 'Apartando…' : 'Confirmar cita'}
           </Button>
         </ActionBar>
       }
@@ -109,6 +148,7 @@ export function Reservar() {
                 onClick={() => {
                   setDay(d);
                   setHour(null);
+                  setError(undefined);
                 }}
               >
                 <span className="day__dow">{weekdayShort(d)}</span>
@@ -121,9 +161,9 @@ export function Reservar() {
 
       <fieldset className="step">
         <legend className="t-label">3 · Hora</legend>
-        <div className="slot-grid" role="radiogroup" aria-label="Hora">
+        <div className="slot-grid" role="radiogroup" aria-label="Hora" aria-busy={taken == null}>
           {barber.hours.map((h) => {
-            const unavailable = taken.includes(h) || isPast(h);
+            const unavailable = taken == null || taken.includes(h);
             return (
               <button
                 key={h}
@@ -132,7 +172,7 @@ export function Reservar() {
                 aria-checked={hour === h}
                 className="slot"
                 disabled={unavailable}
-                aria-label={unavailable ? `${formatHour(h, true)}, ya la tomaron` : formatHour(h, true)}
+                aria-label={unavailable ? `${formatHour(h, true)}, no disponible` : formatHour(h, true)}
                 onClick={() => setHour(h)}
               >
                 {formatHour(h)}

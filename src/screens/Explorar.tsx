@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BarberCard } from '../components/BarberCard';
 import { BottomNav } from '../components/BottomNav';
 import { Chip, ChipRow } from '../components/Chip';
@@ -25,10 +25,14 @@ const normalize = (s: string) =>
     .replace(/[\u0300-\u036f]/g, '');
 
 export function Explorar() {
-  const { barbers } = useAppState();
+  const { barbers, refreshBarbers } = useAppState();
   const [query, setQuery] = useState('');
   const [byDistance, setByDistance] = useState(true);
   const [active, setActive] = useState<Set<FilterId>>(new Set());
+
+  useEffect(() => {
+    refreshBarbers().catch(() => {});
+  }, [refreshBarbers]);
 
   const toggle = (id: FilterId) =>
     setActive((prev) => {

@@ -1,4 +1,6 @@
 import { Route, Routes } from 'react-router-dom';
+import { Button } from './components/Button';
+import { Screen } from './components/Screen';
 import { Agenda } from './screens/Agenda';
 import { Citas } from './screens/Citas';
 import { Cuenta } from './screens/Cuenta';
@@ -10,23 +12,42 @@ import { NotFound } from './screens/NotFound';
 import { Perfil } from './screens/Perfil';
 import { Reservar } from './screens/Reservar';
 import { Suscripcion } from './screens/Suscripcion';
+import { useAppState } from './state/AppState';
 
 export function App() {
+  const { status, retry } = useAppState();
+
   return (
     <div className="app-frame">
-      <Routes>
-        <Route path="/" element={<Explorar />} />
-        <Route path="/barbero/:id" element={<Perfil />} />
-        <Route path="/barbero/:id/reservar" element={<Reservar />} />
-        <Route path="/citas" element={<Citas />} />
-        <Route path="/cuenta" element={<Cuenta />} />
-        <Route path="/soy-barbero" element={<Suscripcion />} />
-        <Route path="/mi-perfil" element={<MiPerfil />} />
-        <Route path="/mi-perfil/editar" element={<EditarPerfil />} />
-        <Route path="/mi-perfil/corte/:serviceId" element={<EditarCorte />} />
-        <Route path="/agenda" element={<Agenda />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      {status === 'loading' ? (
+        <Screen>
+          <p className="t-detail" role="status">
+            Cargando…
+          </p>
+        </Screen>
+      ) : status === 'offline' ? (
+        <Screen>
+          <h1 className="t-title">Sin conexión</h1>
+          <p className="t-body">No pudimos llegar a Filo. Revisa tu internet y prueba otra vez.</p>
+          <Button variant="secondary" onClick={retry}>
+            Reintentar
+          </Button>
+        </Screen>
+      ) : (
+        <Routes>
+          <Route path="/" element={<Explorar />} />
+          <Route path="/barbero/:id" element={<Perfil />} />
+          <Route path="/barbero/:id/reservar" element={<Reservar />} />
+          <Route path="/citas" element={<Citas />} />
+          <Route path="/cuenta" element={<Cuenta />} />
+          <Route path="/soy-barbero" element={<Suscripcion />} />
+          <Route path="/mi-perfil" element={<MiPerfil />} />
+          <Route path="/mi-perfil/editar" element={<EditarPerfil />} />
+          <Route path="/mi-perfil/corte/:serviceId" element={<EditarCorte />} />
+          <Route path="/agenda" element={<Agenda />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      )}
     </div>
   );
 }
