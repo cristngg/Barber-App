@@ -35,7 +35,12 @@ export type ReviewsPage = { items: Review[]; rating: number | null; total: numbe
 
 export type User = { id: string; email: string | null; name: string | null; picture: string | null };
 
-export type Config = { googleClientId: string | null; devLogin: boolean };
+export type Config = { googleClientId: string | null; devLogin: boolean; billing: boolean };
+
+/* Cuenta de barbero: pending (falta pagar), active, past_due (en gracia), canceled (hasta el fin de lo pagado), expired. */
+export type SubStatus = 'pending' | 'active' | 'past_due' | 'canceled' | 'expired';
+export type Subscription = { status: SubStatus; periodEnd: number | null };
+export type Plan = { amountCents: number; currency: string; days: number };
 
 export type BarberPatch = Partial<
   Pick<Barber, 'name' | 'area' | 'bio' | 'tags' | 'weekly' | 'daysOff' | 'location'> & {
@@ -151,7 +156,13 @@ export const api = {
       false,
     ),
 
-  me: () => request<{ user: User; barber: Barber | null }>('/api/me'),
+  me: () => request<{ user: User; barber: Barber | null; subscription: Subscription | null }>('/api/me'),
+  billing: () =>
+    request<{ enabled: boolean; provider: string | null; plan: Plan; subscription: Subscription | null }>('/api/billing'),
+  checkout: () => request<{ url: string }>('/api/billing/checkout', json('POST', {})),
+  cancelSubscription: () => request<Subscription>('/api/billing/cancel', json('POST', {})),
+  testPayment: (id: string) => request<{ plan: Plan; barberName: string; open: boolean }>(`/api/billing/test/${id}`),
+  testPaymentOutcome: (id: string, outcome: 'pay' | 'fail') => request<Subscription>(`/api/billing/test/${id}/${outcome}`, json('POST', {})),
   createBarber: (name: string, area: string) => request<Barber>('/api/me/barber', json('POST', { name, area })),
   updateBarber: (patch: BarberPatch) => request<Barber>('/api/me/barber', json('PATCH', patch)),
   addService: (s: ServiceInput) => request<Barber>('/api/me/barber/services', json('POST', s)),

@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { createApp } from './app.js';
+import { testProvider } from './billing.js';
 import { openDb, seedDemo } from './db.js';
 
 let server: Server;
@@ -169,7 +170,7 @@ describe('Filo API', () => {
     await new Promise((r) => off.once('listening', r));
     const url = `http://localhost:${(off.address() as AddressInfo).port}`;
     const config = await (await fetch(url + '/api/config')).json();
-    assert.deepEqual(config, { googleClientId: null, devLogin: false });
+    assert.deepEqual(config, { googleClientId: null, devLogin: false, billing: false });
     const res = await fetch(url + '/api/auth/google', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -421,6 +422,82 @@ describe('Filo API', () => {
     assert.equal((await api(`/api/barbers/${barber.id}/reviews`)).json.items[1].reply, '¡Gracias, Ana!');
 
     assert.equal((await api('/api/barbers/carlos-m')).json.rating, null, 'los de ejemplo ya no traen estrellas inventadas');
+  });
+
+  it('cobro: pendiente hasta pagar, 30 días, gracia, cancelar y vencer', async () => {
+    const billDb = openDb(join(dir, 'billing.db'));
+    const verifyGoogle = async (credential: string) => ({ sub: credential, email: `${credential}@gmail.com`, emailVerified: true, name: credential });
+    const app = createApp({ db: billDb, uploadDir: join(dir, 'bill-up'), googleClientId: 't', verifyGoogle, billingProvider: testProvider }).listen(0);
+    await new Promise((r) => app.once('listening', r));
+    const url = `http://localhost:${(app.address() as AddressInfo).port}`;
+    const call = async (path: string, token?: string, body?: object) => {
+      const r = await fetch(url + path, {
+        method: body ? 'POST' : 'GET',
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { status: r.status, json: (await r.json()) as any };
+    };
+    const login = async (who: string) => (await call('/api/auth/google', undefined, { credential: who })).json.token as string;
+    const listed = async (id: string) => ((await call('/api/barbers')).json as { id: string }[]).some((b) => b.id === id);
+
+    const token = await login('cobro');
+    const barber = (await call('/api/me/barber', token, { name: 'Paga', area: 'X' })).json;
+    assert.equal((await call('/api/me', token)).json.subscription.status, 'pending');
+    assert.equal(await listed(barber.id), false, 'pendiente: no sale');
+    assert.equal((await call(`/api/barbers/${barber.id}`)).status, 404);
+
+    const checkout = (await call('/api/billing/checkout', token, {})).json;
+    const sessionId = checkout.url.split('/').pop();
+    assert.match(checkout.url, /^\/pago-prueba\//);
+    const other = await login('otro');
+    assert.equal((await call(`/api/billing/test/${sessionId}/pay`, other, {})).status, 404, 'otra persona no paga mi sesión');
+
+    const paid = (await call(`/api/billing/test/${sessionId}/pay`, token, {})).json;
+    assert.equal(paid.status, 'active');
+    const days = (paid.periodEnd - Date.now()) / 86_400_000;
+    assert.ok(days > 29.9 && days <= 30, `30 días (${days})`);
+    assert.equal(await listed(barber.id), true, 'pagado: sale');
+    assert.equal((await call(`/api/billing/test/${sessionId}/pay`, token, {})).status, 409, 'el mismo pago no cuenta dos veces');
+
+    // Pagar otra vez antes de vencer suma 30 días al final
+    const again = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
+    const twice = (await call(`/api/billing/test/${again}/pay`, token, {})).json;
+    assert.ok(Math.round((twice.periodEnd - paid.periodEnd) / 86_400_000) === 30);
+
+    // Venció hace 2 días: gracia (sigue saliendo); hace 6: vencido (no sale y no recibe citas)
+    billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 2 * 86_400_000, barber.id);
+    assert.equal((await call('/api/billing', token)).json.subscription.status, 'past_due');
+    assert.equal(await listed(barber.id), true);
+    billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 6 * 86_400_000, barber.id);
+    assert.equal((await call('/api/billing', token)).json.subscription.status, 'expired');
+    assert.equal(await listed(barber.id), false);
+    const client = await login('cliente-cobro');
+    const svc = (await call('/api/me/barber/services', token, { name: 'Corte', price: 10, style: 'fade' })).json.services[0];
+    const booked = await call('/api/appointments', client, { barberId: barber.id, serviceId: svc.id, date: nextDate(barber.workDays), start: 600 });
+    assert.equal(booked.status, 404, 'vencido: no recibe citas');
+
+    // Un pago rechazado no lo activa
+    const failId = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
+    assert.equal((await call(`/api/billing/test/${failId}/fail`, token, {})).json.status, 'expired');
+
+    // Pagar y cancelar: sigue visible hasta el fin de lo pagado
+    const renew = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
+    await call(`/api/billing/test/${renew}/pay`, token, {});
+    const canceled = (await call('/api/billing/cancel', token, {})).json;
+    assert.equal(canceled.status, 'canceled');
+    assert.equal(await listed(barber.id), true);
+    billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 1000, barber.id);
+    assert.equal((await call('/api/billing', token)).json.subscription.status, 'expired', 'cancelada y vencida: sin gracia');
+    app.close();
+  });
+
+  it('sin cobro, las cuentas nuevas salen de una vez', async () => {
+    const token = await session();
+    const barber = (await api('/api/me/barber', { token, method: 'POST', body: { name: 'Gratis', area: 'X' } })).json;
+    assert.equal((await api('/api/me', { token })).json.subscription.status, 'active');
+    assert.ok(((await api('/api/barbers')).json as { id: string }[]).some((b) => b.id === barber.id));
+    assert.equal((await api('/api/billing/checkout', { token, method: 'POST', body: {} })).status, 400);
   });
 
   it('nadie usa las fotos de otro', async () => {

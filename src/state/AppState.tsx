@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Barber } from '../data/barbers';
 import type { LatLng } from '../data/geo';
-import { api, ApiError, hasSession, onSessionExpired, type Appointment, type BarberPatch, type Config, type ServiceInput, type User } from './api';
+import { api, ApiError, hasSession, onSessionExpired, type Appointment, type BarberPatch, type Config, type ServiceInput, type Subscription, type User } from './api';
 import { load, save } from './storage';
 
 export type { Appointment, User } from './api';
@@ -32,8 +32,11 @@ type AppState = {
   barbers: Barber[];
   getBarber: (id: string | undefined) => Barber | undefined;
   refreshBarbers: () => Promise<void>;
-  /* El perfil del barbero que usa este teléfono. */
+  /* El perfil del barbero que usa este teléfono y el estado de su cuenta (cobro). */
   myBarber: Barber | null;
+  subscription: Subscription | null;
+  /* Volver a leer mi perfil y mi suscripción (p. ej. después de pagar). */
+  refreshMe: () => Promise<void>;
   createMyBarber: (name: string, area: string) => Promise<Barber>;
   updateMyBarber: (patch: BarberPatch) => Promise<void>;
   saveService: (id: string | null, s: ServiceInput) => Promise<void>;
@@ -58,7 +61,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [myBarber, setMyBarber] = useState<Barber | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [config, setConfig] = useState<Config>({ googleClientId: null, devLogin: false });
+  const [config, setConfig] = useState<Config>({ googleClientId: null, devLogin: false, billing: false });
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [here, setHere] = useState<LatLng | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
@@ -112,6 +116,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     const [me, appts] = await Promise.all([api.me(), api.appointments()]);
     setUser(me.user);
     setMyBarber(me.barber);
+    setSubscription(me.subscription);
     setAppointments(appts);
   }, []);
 
@@ -186,26 +191,31 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
-  const getBarber = useCallback((id: string | undefined) => barbers.find((b) => b.id === id), [barbers]);
+  /* Mi propio perfil también, aunque todavía no sea público (falta el pago). */
+  const getBarber = useCallback(
+    (id: string | undefined) => barbers.find((b) => b.id === id) ?? (myBarber && myBarber.id === id ? myBarber : undefined),
+    [barbers, myBarber],
+  );
 
   const refreshBarbers = useCallback(async () => {
     setBarbers(await api.barbers());
   }, []);
 
-  /* Tras cada cambio del perfil, el servidor devuelve el perfil completo. */
+  /* Tras cada cambio del perfil, el servidor devuelve el perfil completo. En la lista pública solo si ya sale ahí. */
   const applyMine = useCallback((b: Barber) => {
     setMyBarber(b);
-    setBarbers((list) => (list.some((x) => x.id === b.id) ? list.map((x) => (x.id === b.id ? b : x)) : [...list, b]));
+    setBarbers((list) => list.map((x) => (x.id === b.id ? b : x)));
   }, []);
 
   const createMyBarber = useCallback(
     async (name: string, area: string) => {
       const b = await api.createBarber(name, area);
-      applyMine(b);
+      setMyBarber(b);
       setMode('barber');
+      await loadMine();
       return b;
     },
-    [applyMine],
+    [loadMine],
   );
 
   const updateMyBarber = useCallback(async (patch: BarberPatch) => applyMine(await api.updateBarber(patch)), [applyMine]);
@@ -254,6 +264,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       getBarber,
       refreshBarbers,
       myBarber,
+      subscription,
+      refreshMe: loadMine,
       createMyBarber,
       updateMyBarber,
       saveService,
@@ -263,7 +275,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       book,
       cancel,
     }),
-    [status, retry, config, user, here, locationStatus, locate, signInWithGoogle, signInDev, signInWithPassword, register, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, createMyBarber, updateMyBarber,
+    [status, retry, config, user, here, locationStatus, locate, signInWithGoogle, signInDev, signInWithPassword, register, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, subscription, loadMine, createMyBarber, updateMyBarber,
       saveService, removeService, appointments, refreshAppointments, book, cancel],
   );
 

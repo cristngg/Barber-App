@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { testProvider } from './billing.js';
 import { openDb, seedDemo } from './db.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,6 +24,18 @@ if (!process.env.GOOGLE_CLIENT_ID) {
   console.warn('Falta GOOGLE_CLIENT_ID: nadie podrá entrar con Google.');
 }
 
+/*
+ * Cobro: BILLING_PROVIDER=test (pago simulado, para probar) u off (sin cobro: todos los perfiles públicos).
+ * Por defecto, test al desarrollar y off en producción. El pago simulado no se permite en producción.
+ */
+const production = process.env.NODE_ENV === 'production';
+const billingName = process.env.BILLING_PROVIDER ?? (production ? 'off' : 'test');
+if (billingName === 'test' && production) {
+  throw new Error('BILLING_PROVIDER=test deja "pagar" sin cobrar: no se permite en producción.');
+}
+if (billingName !== 'test' && billingName !== 'off') throw new Error(`BILLING_PROVIDER desconocido: ${billingName}`);
+if (billingName === 'off') console.warn('Cobro desactivado: las cuentas de barbero son gratis.');
+
 const db = openDb(resolve(dataDir, 'filo.db'));
 if (process.env.SEED_DEMO !== '0') seedDemo(db);
 
@@ -35,6 +48,7 @@ const app = createApp({
   devLogin,
   trustProxy: process.env.TRUST_PROXY === '1',
   routingUrl: process.env.ROUTING_URL || undefined,
+  billingProvider: billingName === 'test' ? testProvider : null,
 });
 
 const port = Number(process.env.PORT ?? 3001);

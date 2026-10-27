@@ -32,6 +32,7 @@ npm test             # pruebas de la API
 | `SEED_DEMO` | `1` | Con `0`, no crea los 3 barberos de ejemplo en una base vacía |
 | `GOOGLE_CLIENT_ID` | (vacío) | ID de cliente OAuth de Google. Sin él, nadie puede entrar con Google. |
 | `ROUTING_URL` | `https://routing.openstreetmap.de` | Servicio de rutas compatible con OSRM para "Cómo llegar". El de OpenStreetMap (FOSSGIS) es gratis y de uso moderado; con mucho tráfico, usa tu propio OSRM o un proveedor. |
+| `BILLING_PROVIDER` | `test` (desarrollo) / `off` (producción) | Cobro de la cuenta de barbero. `test`: pago simulado, no cobra (no se permite en producción). `off`: sin cobro, todas las cuentas son públicas. |
 | `TRUST_PROXY` | `0` | Con `1`, usa la IP real del cliente cuando el servidor está detrás de un proxy (Nginx, Cloudflare, el del hosting). Hace falta para que el límite de intentos de contraseña funcione bien. |
 | `DEV_LOGIN` | `0` | Con `1`, muestra "Entrar de prueba" (entrar con un nombre, sin Google). Solo para desarrollo: el servidor no arranca si está activo con `NODE_ENV=production`. |
 
@@ -77,6 +78,8 @@ Sin volumen persistente, cada reinicio borra los perfiles, las fotos y las citas
 - **Píldoras de búsqueda por zona** (`server/trending.ts`, `src/state/trending.ts`): las píldoras de Explorar y Cortes muestran lo que más busca la gente a menos de 50 km en los últimos 30 días, con la palabra que usan ahí ("Rayitos" en un lugar, "Mechas" en otro; las dos filtran Tinte). Un tipo sale una sola vez, con su palabra más buscada; después van los tipos fijos. Una búsqueda se anota cuando la persona deja de escribir 1.5 s (`POST /api/searches`), solo si encuentra algún corte, una vez al día por persona y palabra. Una palabra solo se vuelve píldora si la buscaron 3 personas distintas o más. Se guarda la ubicación redondeada a ~1 km; las búsquedas de más de 30 días se borran. Sin datos de la zona, se usan los de todas partes.
 - **Horario real** (`server/schedule.ts`, `src/screens/Horario.tsx`): cada barbero pone sus horas de cada día (o lo cierra) y sus días libres. Cada corte dice cuánto dura (de 15 min a 6 h). Al apartar, la app ofrece horas cada 30 min que caben enteras en el horario y no se cruzan con otras citas; las citas guardan inicio y duración. "Abierto ahora" y "Libre hoy" se calculan solos con el horario y las citas del día.
 - **Reseñas** (`server/reviews.ts`, `src/components/Reviews.tsx`): quien tuvo la cita la puede calificar (1 a 5 estrellas y un texto opcional) cuando terminó y hasta 30 días después, desde "Mis citas → Pasadas". Una reseña por cita, que se puede corregir. Sale con el nombre corto ("Ana P."). El barbero responde desde su portafolio. Las estrellas del perfil son el promedio real; sin reseñas, dice "Nuevo".
+- **Cobro de la cuenta de barbero** (`server/billing.ts`, `src/state/billing.ts`): $3.99 por 30 días. Una cuenta nueva queda *pendiente* y su perfil no sale en el mapa, la búsqueda ni recibe citas hasta pagar. Cada pago suma 30 días (desde hoy o desde el fin de lo ya pagado). Si no renueva, 5 días de gracia y luego *vence*. Si cancela, sigue visible hasta el fin de lo pagado. El portafolio avisa qué falta y Cuenta muestra la suscripción con "Cancelar" o "Pagar/Reactivar". Las cuentas creadas antes del cobro quedan activas 30 días.
+  - **Proveedor:** hoy solo existe el de prueba (`/pago-prueba/:id`, "Pagar" o "Simular pago rechazado", sin cobrar). Para conectar PayPal u otro, escribe un `BillingProvider` en `server/billing.ts` con `checkout` (devuelve la URL de pago), `cancel` y `parseWebhook` (verifica la firma y devuelve eventos `paid`, `failed`, `canceled`), y elígelo con `BILLING_PROVIDER`. El aviso del proveedor llega a `POST /api/billing/webhook`; aplicar un pago es idempotente.
 - **Citas:** el servidor valida que el barbero atienda ese día y a esa hora, que no haya pasado y que no se cruce con otra cita; revisa y guarda en una sola transacción. Cancelar libera el espacio.
 - **Fotos:** solo se aceptan JPEG, PNG o WebP de hasta 6 MB, y cada quien solo puede usar las fotos que subió. Al reemplazar o quitar una foto, el servidor la borra.
 
@@ -94,6 +97,6 @@ En Cuenta se cambia entre usar Filo como cliente o como barbero.
 
 - Recuperar contraseña ("¿Olvidaste tu contraseña?") y confirmar el correo: necesitan un servicio para enviar correos.
 - Más formas de entrar (teléfono, Apple).
-- Cobro de la suscripción y `[TÉRMINOS DE COBRO Y CANCELACIÓN]`.
+- Conectar un proveedor de pago real (PayPal, etc.) y los `[TÉRMINOS DE COBRO Y CANCELACIÓN]`.
 - Límite de solicitudes por IP antes de abrirlo al público.
 - Los barberos de ejemplo siguen con `$[PRECIO]` y sin fotos; se apagan con `SEED_DEMO=0`.

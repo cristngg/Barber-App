@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type RequestHandler, type Res
 import { OAuth2Client } from 'google-auth-library';
 import { transaction, type DB } from './db.js';
 import { HttpError, type AuthedRequest, type Row } from './http.js';
+import { createBilling, isPublic, type BillingProvider } from './billing.js';
 import { createReviews } from './reviews.js';
 import { burnTime, hashPassword, verifyPassword } from './passwords.js';
 import {
@@ -45,6 +46,8 @@ export type AppOptions = {
   routingUrl?: string;
   /* Reemplazable en pruebas. */
   fetchImpl?: typeof fetch;
+  /* Cobro de la cuenta de barbero; null = sin cobro (todos los perfiles públicos). */
+  billingProvider?: BillingProvider | null;
   /* Cuántas personas distintas deben buscar una palabra para que salga como píldora. */
   trendingMinUsers?: number;
   /* Detrás de un proxy (Nginx, Cloudflare, el del hosting): usar la IP real del cliente para limitar intentos. */
@@ -236,6 +239,7 @@ export function createApp({
   devLogin = false,
   trustProxy = false,
   trendingMinUsers = 3,
+  billingProvider = null,
   routingUrl = 'https://routing.openstreetmap.de',
   fetchImpl = fetch,
   verifyGoogle = googleClientId ? googleVerifier(googleClientId) : undefined,
@@ -275,6 +279,9 @@ export function createApp({
 
   /* Abierto ahora y hueco libre hoy (para el corte más corto que ofrece). */
   const reviews = createReviews(db, timeZone);
+  const billing = createBilling(db, billingProvider);
+  /* Los de ejemplo (sin dueño) siempre; los demás, si su cuenta está al día. */
+  const visible = (row: Row) => row.owner_id == null || isPublic(billing.status(row));
 
   const liveStatus = (
     row: Row,
@@ -313,7 +320,7 @@ export function createApp({
       busy.set(b.barber_id, [...(busy.get(b.barber_id) ?? []), b]);
     }
     const stats = reviews.allStats();
-    return (q.barbers.all() as Row[]).map((b) => {
+    return (q.barbers.all() as Row[]).filter(visible).map((b) => {
       const services = byBarber.get(b.id as string) ?? [];
       const s = stats.get(b.id as string) ?? { rating: null, reviewCount: 0 };
       return toBarber(b, services, liveStatus(b, services, busy.get(b.id as string) ?? [], s));
@@ -426,7 +433,7 @@ export function createApp({
 
   /* Lo que la app necesita saber para mostrar el inicio de sesión. */
   app.get('/api/config', (_req, res) => {
-    res.json({ googleClientId: googleClientId ?? null, devLogin });
+    res.json({ googleClientId: googleClientId ?? null, devLogin, billing: billing.enabled });
   });
 
   app.post(
@@ -526,7 +533,8 @@ export function createApp({
   });
 
   app.get('/api/barbers/:id', (req, res) => {
-    const barber = loadBarber(q.barber.get(req.params.id) as Row | undefined);
+    const row = q.barber.get(req.params.id) as Row | undefined;
+    const barber = row && visible(row) ? loadBarber(row) : null;
     if (!barber) throw new HttpError(404, 'Ese barbero ya no existe.');
     res.json(barber);
   });
@@ -610,7 +618,8 @@ export function createApp({
   /* --- Mi cuenta --- */
 
   app.get('/api/me', auth, (req: AuthedRequest, res) => {
-    res.json({ user: toUser(req.userId!), barber: loadBarber(q.barberByOwner.get(req.userId!) as Row | undefined) });
+    const mine = q.barberByOwner.get(req.userId!) as Row | undefined;
+    res.json({ user: toUser(req.userId!), barber: loadBarber(mine), subscription: billing.summary(mine) });
   });
 
   app.post('/api/me/barber', auth, (req: AuthedRequest, res) => {
@@ -621,8 +630,9 @@ export function createApp({
     const now = Date.now();
     // TODO: cobrar la suscripción ($3.99/mes) antes de crear la cuenta.
     db.prepare(
-      `INSERT INTO barbers (id, owner_id, name, area, weekly, map_x, map_y, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`,
-    ).run(id, req.userId!, name, area, JSON.stringify(DEFAULT_WEEKLY), now, now);
+      `INSERT INTO barbers (id, owner_id, name, area, weekly, sub_status, map_x, map_y, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+    ).run(id, req.userId!, name, area, JSON.stringify(DEFAULT_WEEKLY), billing.initialStatus, now, now);
     res.status(201).json(loadBarber(q.barber.get(id) as Row));
   });
 
@@ -724,6 +734,8 @@ export function createApp({
 
     const rows = allCuts.all() as Row[];
     const live = new Map(loadAllBarbers().map((b) => [b.id, b]));
+    /* Solo cortes de barberos visibles (cuenta al día). */
+    const shown = rows.filter((r) => live.has(r.barber_id as string));
 
     const km = (r: Row) => {
       if (!near || r.lat == null) return Infinity;
@@ -733,7 +745,7 @@ export function createApp({
       return Math.sqrt(x * x + y * y) * 111.32;
     };
 
-    const found = rows
+    const found = shown
       .filter((r) => !style || r.style === style)
       .filter((r) =>
         matches(
@@ -827,6 +839,7 @@ export function createApp({
   /* --- Citas --- */
 
   reviews.register(app, auth, myBarberRow);
+  billing.register(app, auth);
 
   app.get('/api/appointments', auth, (req: AuthedRequest, res) => {
     /* Con su reseña (si la hay) y si ya se puede calificar. */
@@ -836,7 +849,7 @@ export function createApp({
   app.post('/api/appointments', auth, (req: AuthedRequest, res) => {
     const { barberId, serviceId, date, start } = req.body ?? {};
     const barber = q.barber.get(String(barberId)) as Row | undefined;
-    if (!barber) throw new HttpError(404, 'Ese barbero ya no existe.');
+    if (!barber || !visible(barber)) throw new HttpError(404, 'Ese barbero no está recibiendo citas por ahora.');
     const service = q.service.get(String(serviceId), barber.id as string) as Row | undefined;
     if (!service) throw new HttpError(400, 'Elige un servicio.');
     if (!isValidDate(date)) throw new HttpError(400, 'Elige un día.');

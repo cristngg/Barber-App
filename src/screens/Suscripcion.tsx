@@ -6,6 +6,7 @@ import { Icon } from '../components/Icon';
 import { ActionBar, Screen } from '../components/Screen';
 import { errorMessage } from '../state/api';
 import { useAppState } from '../state/AppState';
+import { useCheckout } from '../state/billing';
 import './screens.css';
 
 const PLAN_PRICE = '$3.99';
@@ -17,7 +18,9 @@ const BENEFITS = [
 ];
 
 export function Suscripcion() {
-  const { myBarber, createMyBarber, user } = useAppState();
+  const { myBarber, createMyBarber, user, config } = useAppState();
+  const checkout = useCheckout();
+  const [hadAccount] = useState(!!myBarber);
   const navigate = useNavigate();
   const [name, setName] = useState(user?.name ?? '');
   const [zone, setZone] = useState('');
@@ -25,7 +28,8 @@ export function Suscripcion() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
 
-  if (myBarber) return <Navigate to="/mi-perfil" replace />;
+  /* Si ya tenía cuenta al llegar, va a su portafolio (ahí está el aviso para pagar si falta). */
+  if (hadAccount) return <Navigate to="/mi-perfil" replace />;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,12 +39,18 @@ export function Suscripcion() {
     };
     setErrors(next);
     if (next.name || next.zone || saving) return;
+    /* La cuenta ya se creó pero el pago no abrió: solo reintentar el pago. */
+    if (myBarber) {
+      await checkout.start();
+      return;
+    }
     setSaving(true);
     setSaveError(undefined);
     try {
-      // TODO: cobrar la suscripción antes de crear la cuenta.
       await createMyBarber(name.trim(), zone.trim());
-      navigate('/mi-perfil', { replace: true, state: { welcome: true } });
+      /* Con cobro: la cuenta queda pendiente y se abre el pago. Sin cobro: ya es pública. */
+      if (config.billing) await checkout.start();
+      else navigate('/mi-perfil', { replace: true, state: { welcome: true } });
     } catch (err) {
       setSaveError(errorMessage(err));
       setSaving(false);
@@ -51,13 +61,13 @@ export function Suscripcion() {
     <Screen
       footer={
         <ActionBar>
-          {saveError && (
+          {(saveError ?? checkout.error) && (
             <span className="field__error" role="alert">
               <Icon name="alert" size={16} strokeWidth={2} />
-              {saveError}
+              {saveError ?? checkout.error}
             </span>
           )}
-          <Button type="submit" form="plan-form" disabled={saving}>
+          <Button type="submit" form="plan-form" disabled={saving || checkout.busy}>
             {saving ? 'Creando tu cuenta…' : `Crear mi cuenta · ${PLAN_PRICE}/mes`}
           </Button>
           <span className="t-detail fine-print">[TÉRMINOS DE COBRO Y CANCELACIÓN]</span>

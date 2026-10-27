@@ -47,6 +47,10 @@ CREATE TABLE IF NOT EXISTS barbers (
   -- work_days y hours quedan solo por las bases viejas.
   weekly TEXT,
   days_off TEXT NOT NULL DEFAULT '[]',
+  -- Cobro (ver billing.ts): pending | active | past_due | canceled; hasta cuándo está pagado.
+  sub_status TEXT,
+  sub_ref TEXT,
+  period_end INTEGER,
   avatar TEXT,
   cover TEXT,
   -- Dónde atiende (WGS84). NULL = todavía no marca su ubicación.
@@ -107,6 +111,14 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 CREATE INDEX IF NOT EXISTS reviews_barber ON reviews(barber_id, created_at);
 
+-- Cada intento de pago (una "sesión" del proveedor), para no aplicar el mismo pago dos veces.
+CREATE TABLE IF NOT EXISTS billing_sessions (
+  id TEXT PRIMARY KEY,
+  barber_id TEXT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS appointments (
   id TEXT PRIMARY KEY,
   barber_id TEXT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
@@ -141,8 +153,15 @@ export function openDb(file: string): DB {
   addColumn(db, 'services', 'duration_min', 'INTEGER');
   addColumn(db, 'appointments', 'start_min', 'INTEGER');
   addColumn(db, 'appointments', 'duration_min', 'INTEGER');
+  addColumn(db, 'barbers', 'sub_status', 'TEXT');
+  addColumn(db, 'barbers', 'sub_ref', 'TEXT');
+  addColumn(db, 'barbers', 'period_end', 'INTEGER');
   db.exec(SCHEMA);
   migrateSchedule(db);
+  /* Barberos de antes del cobro: quedan activos 30 días desde hoy, sin cortarles nada de golpe. */
+  db.prepare("UPDATE barbers SET sub_status = 'active', period_end = ? WHERE owner_id IS NOT NULL AND sub_status IS NULL").run(
+    Date.now() + 30 * 24 * 60 * 60 * 1000,
+  );
   return db;
 }
 

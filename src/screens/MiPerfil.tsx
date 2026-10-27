@@ -1,21 +1,25 @@
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { formatDistance, formatPrice } from '../data/barbers';
 import { BottomNav } from '../components/BottomNav';
-import { ButtonLink } from '../components/Button';
+import { Button, ButtonLink } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Photo } from '../components/Photo';
 import { Rating } from '../components/Rating';
 import { Reviews } from '../components/Reviews';
 import { Screen, SectionHeader } from '../components/Screen';
+import { FormError } from '../components/SignIn';
 import { StatusTag } from '../components/StatusTag';
 import { useAppState } from '../state/AppState';
+import { formatDay, subscriptionNotice, useCheckout } from '../state/billing';
 import './screens.css';
 
 /* Portafolio: el perfil del barbero visto por su dueño, con todo editable. */
 export function MiPerfil() {
-  const { myBarber: barber, here } = useAppState();
+  const { myBarber: barber, here, subscription } = useAppState();
   const location = useLocation();
-  const welcome = (location.state as { welcome?: boolean } | null)?.welcome;
+  const { welcome, payment } = (location.state as { welcome?: boolean; payment?: 'pay' | 'fail' } | null) ?? {};
+  const checkout = useCheckout();
+  const notice = subscriptionNotice(subscription);
 
   if (!barber) return <Navigate to="/soy-barbero" replace />;
 
@@ -24,6 +28,31 @@ export function MiPerfil() {
       <Photo src={barber.cover} alt="" label="SIN FOTO DE PORTADA" className="cover__photo" />
 
       <div className="profile">
+        {payment === 'pay' && subscription?.status === 'active' && (
+          <div className="notice" role="status">
+            <Icon name="check" size={20} strokeWidth={2.2} />
+            Listo, tu cuenta está activa
+            {subscription.periodEnd ? ` hasta el ${formatDay(subscription.periodEnd)}` : ''}. Tu perfil ya sale en el mapa.
+          </div>
+        )}
+        {payment === 'fail' && (
+          <div className="notice notice--alert" role="alert">
+            <Icon name="alert" size={20} strokeWidth={2} />
+            El pago no pasó. Revisa tu tarjeta y prueba otra vez.
+          </div>
+        )}
+        {notice && (
+          <div className={`sub-banner sub-banner--${notice.tone}`}>
+            <span className="t-body">{notice.text}</span>
+            {notice.action && (
+              <Button onClick={checkout.start} disabled={checkout.busy}>
+                {checkout.busy ? 'Abriendo el pago…' : notice.action}
+              </Button>
+            )}
+            <FormError message={checkout.error} />
+          </div>
+        )}
+
         {welcome && (
           <div className="notice" role="status">
             <Icon name="check" size={20} strokeWidth={2.2} />

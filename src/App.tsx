@@ -13,6 +13,7 @@ import { Explorar } from './screens/Explorar';
 import { Horario } from './screens/Horario';
 import { MiPerfil } from './screens/MiPerfil';
 import { NotFound } from './screens/NotFound';
+import { PagoPrueba } from './screens/PagoPrueba';
 import { Perfil } from './screens/Perfil';
 import { Reservar } from './screens/Reservar';
 import { Ruta } from './screens/Ruta';
@@ -57,6 +58,7 @@ export function App() {
           <Route path="/mi-perfil/horario" element={<Horario />} />
           <Route path="/mi-perfil/corte/:serviceId" element={<EditarCorte />} />
           <Route path="/agenda" element={<Agenda />} />
+          <Route path="/pago-prueba/:id" element={<PagoPrueba />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       )}

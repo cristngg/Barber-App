@@ -4,12 +4,34 @@ import { Button } from '../components/Button';
 import { Chip, ChipRow } from '../components/Chip';
 import { Icon } from '../components/Icon';
 import { Screen, SectionHeader } from '../components/Screen';
+import { useState } from 'react';
+import { FormError } from '../components/SignIn';
+import { api, errorMessage } from '../state/api';
 import { useAppState, type Mode } from '../state/AppState';
+import { formatDay, PLAN_LABEL, STATUS_LABEL, useCheckout } from '../state/billing';
 import './screens.css';
 
 export function Cuenta() {
-  const { theme, setTheme, mode, setMode, myBarber, user, signOut } = useAppState();
+  const { theme, setTheme, mode, setMode, myBarber, user, signOut, config, subscription, refreshMe } = useAppState();
   const navigate = useNavigate();
+  const checkout = useCheckout();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const cancelSubscription = async () => {
+    if (!subscription?.periodEnd) return;
+    if (!window.confirm(`¿Cancelar? Tu perfil sigue saliendo hasta el ${formatDay(subscription.periodEnd)} y luego deja de salir.`)) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.cancelSubscription();
+      await refreshMe();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -65,18 +87,46 @@ export function Cuenta() {
         </ChipRow>
       </section>
 
-      {myBarber ? (
+      {myBarber && (
         <section className="stack-12">
           <SectionHeader title="Tu perfil de barbero" />
           <Link to="/mi-perfil/editar" className="promo">
             <span className="promo__body">
               <span className="t-card-title">{myBarber.name}</span>
-              <span className="t-detail">Edita tu foto, descripción, días y especialidades.</span>
+              <span className="t-detail">Edita tu foto, descripción y especialidades.</span>
             </span>
             <Icon name="chevron" size={22} />
           </Link>
         </section>
-      ) : (
+      )}
+
+      {myBarber && config.billing && subscription && (
+        <section className="stack-12">
+          <SectionHeader title="Suscripción" aside={STATUS_LABEL[subscription.status]} />
+          <div className="sub-card">
+            <span className="t-card-title">Cuenta de barbero · {PLAN_LABEL}</span>
+            <span className="t-detail">
+              {subscription.status === 'active' && subscription.periodEnd && `Pagada hasta el ${formatDay(subscription.periodEnd)}.`}
+              {subscription.status === 'canceled' && subscription.periodEnd && `No se renueva. Tu perfil sale hasta el ${formatDay(subscription.periodEnd)}.`}
+              {subscription.status === 'past_due' && 'No pudimos cobrar el último mes.'}
+              {subscription.status === 'pending' && 'Todavía no la activas: tu perfil no sale.'}
+              {subscription.status === 'expired' && 'Venció: tu perfil no sale y no recibes citas.'}
+            </span>
+          </div>
+          {subscription.status === 'active' || subscription.status === 'past_due' ? (
+            <Button variant="danger" onClick={cancelSubscription} disabled={busy}>
+              {busy ? 'Cancelando…' : 'Cancelar suscripción'}
+            </Button>
+          ) : (
+            <Button onClick={checkout.start} disabled={checkout.busy}>
+              {subscription.status === 'canceled' ? 'Reactivar' : `Pagar · ${PLAN_LABEL}`}
+            </Button>
+          )}
+          <FormError message={error ?? checkout.error} />
+        </section>
+      )}
+
+      {!myBarber && (
         <section className="stack-12">
           <SectionHeader title="¿Eres barbero?" />
           <Link to="/soy-barbero" className="promo">
