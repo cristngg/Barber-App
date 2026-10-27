@@ -1,4 +1,5 @@
-import { Link, useParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { formatDistance, formatPrice } from '../data/barbers';
 import { BarberMap } from '../components/Map';
 import { ButtonLink } from '../components/Button';
@@ -13,6 +14,12 @@ import './screens.css';
 
 export function Perfil() {
   const { id } = useParams();
+  /* Viene de "Cortes": ese corte se resalta y queda elegido al apartar. */
+  const [params] = useSearchParams();
+  const picked = params.get('corte');
+  useEffect(() => {
+    if (picked) document.getElementById(`corte-${picked}`)?.scrollIntoView({ block: 'center' });
+  }, [picked]);
   const { getBarber, myBarber, here } = useAppState();
   const barber = getBarber(id);
   if (!barber) return <NotFound />;
@@ -23,7 +30,7 @@ export function Perfil() {
       padded={false}
       footer={
         <ActionBar>
-          <ButtonLink to={`/barbero/${barber.id}/reservar`} icon={<Icon name="calendar" size={20} strokeWidth={2} />}>
+          <ButtonLink to={`/barbero/${barber.id}/reservar${picked ? `?servicio=${picked}` : ''}`} icon={<Icon name="calendar" size={20} strokeWidth={2} />}>
             Apartar cita
           </ButtonLink>
         </ActionBar>
@@ -69,7 +76,7 @@ export function Perfil() {
           <SectionHeader title="Mis cortes" aside={barber.photoCount === 1 ? '1 foto' : `${barber.photoCount} fotos`} />
           <ul className="portfolio" role="list">
             {barber.services.map((s) => (
-              <li key={s.id} className="portfolio__item">
+              <li key={s.id} id={`corte-${s.id}`} className={`portfolio__item${s.id === picked ? ' portfolio__item--picked' : ''}`}>
                 <Photo src={s.photo} alt={s.name} label="" className="portfolio__photo" />
                 <span className="portfolio__name">{s.name}</span>
                 <span className="portfolio__price">{formatPrice(s.price)}</span>

@@ -10,6 +10,8 @@ export type Service = {
   name: string;
   price: number | null;
   photo?: string;
+  /* Tipo de corte (una de SPECIALTIES); null en cortes viejos sin tipo. */
+  style: string | null;
 };
 
 export type Barber = {
@@ -41,6 +43,9 @@ export const SPECIALTIES = [
   { tag: 'fade', label: 'Fade' },
   { tag: 'barba', label: 'Barba' },
   { tag: 'disenos', label: 'Diseños' },
+  { tag: 'trenzas', label: 'Trenzas' },
+  { tag: 'alisado', label: 'Alisado' },
+  { tag: 'tinte', label: 'Tinte' },
   { tag: 'ninos', label: 'Niños' },
   { tag: 'clasico', label: 'Clásico' },
   { tag: 'navaja', label: 'Navaja' },

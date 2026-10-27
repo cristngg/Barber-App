@@ -3,6 +3,7 @@ import { Button } from './components/Button';
 import { Screen } from './components/Screen';
 import { Agenda } from './screens/Agenda';
 import { Citas } from './screens/Citas';
+import { Cortes } from './screens/Cortes';
 import { Cuenta } from './screens/Cuenta';
 import { EditarCorte } from './screens/EditarCorte';
 import { EditarPerfil } from './screens/EditarPerfil';
@@ -44,6 +45,7 @@ export function App() {
           <Route path="/barbero/:id" element={<Perfil />} />
           <Route path="/barbero/:id/reservar" element={<Reservar />} />
           <Route path="/barbero/:id/ruta" element={<Ruta />} />
+          <Route path="/cortes" element={<Cortes />} />
           <Route path="/citas" element={<Citas />} />
           <Route path="/cuenta" element={<Cuenta />} />
           <Route path="/soy-barbero" element={<Suscripcion />} />

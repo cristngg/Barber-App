@@ -59,7 +59,10 @@ CREATE TABLE IF NOT EXISTS services (
   name TEXT NOT NULL,
   price_cents INTEGER,
   photo TEXT,
-  position INTEGER NOT NULL
+  -- Tipo de corte (ver STYLES en search.ts), para buscar por estilo.
+  style TEXT,
+  position INTEGER NOT NULL,
+  created_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS services_barber ON services(barber_id, position);
 
@@ -95,6 +98,8 @@ export function openDb(file: string): DB {
   addColumn(db, 'users', 'password_hash', 'TEXT');
   addColumn(db, 'barbers', 'lat', 'REAL');
   addColumn(db, 'barbers', 'lng', 'REAL');
+  addColumn(db, 'services', 'style', 'TEXT');
+  addColumn(db, 'services', 'created_at', 'INTEGER');
   db.exec(SCHEMA);
   return db;
 }
@@ -160,19 +165,19 @@ const DEMO = [
     id: 'carlos-m', name: 'Carlos M.', area: 'Bella Vista', tags: ['fade', 'barba', 'disenos'],
     rating: 4.9, free: 1, open: 1, days: [2, 3, 4, 5, 6], at: [8.9823, -79.5262],
     bio: 'Fade, barba y diseños a navaja. Atiendo con cita, de martes a sábado.',
-    services: ['Fade bajo', 'Barba con navaja', 'Diseño lineal', 'Corte clásico', 'Fade medio', 'Corte niño'],
+    services: [['Fade bajo', 'fade'], ['Barba con navaja', 'barba'], ['Diseño lineal', 'disenos'], ['Corte clásico', 'clasico'], ['Fade medio', 'fade'], ['Corte niño', 'ninos']],
   },
   {
     id: 'la-esquina', name: 'Barbería La Esquina', area: 'El Cangrejo', tags: ['clasico', 'navaja', 'barba'],
     rating: 4.7, free: 1, open: 1, days: [1, 2, 3, 4, 5, 6], at: [8.9928, -79.5287],
     bio: 'Corte clásico y afeitado a navaja caliente. Sin cita también, si hay puesto.',
-    services: ['Corte clásico', 'Barba con navaja', 'Afeitado caliente'],
+    services: [['Corte clásico', 'clasico'], ['Barba con navaja', 'barba'], ['Afeitado caliente', 'navaja']],
   },
   {
     id: 'andres-r', name: 'Andrés R.', area: 'San Francisco', tags: ['ninos', 'fade'],
     rating: 4.8, free: 0, open: 0, days: [0, 3, 4, 5, 6], at: [8.9961, -79.5068],
     bio: 'Paciencia con los pelaos y fades limpios. Atiendo de miércoles a domingo.',
-    services: ['Corte niño', 'Fade bajo', 'Fade medio'],
+    services: [['Corte niño', 'ninos'], ['Fade bajo', 'fade'], ['Fade medio', 'fade']],
   },
 ];
 
@@ -182,6 +187,9 @@ export function seedDemo(db: DB) {
     /* Bases anteriores al mapa: los de ejemplo reciben su ubicación. */
     const setAt = db.prepare('UPDATE barbers SET lat = ?, lng = ? WHERE id = ? AND owner_id IS NULL AND lat IS NULL');
     for (const b of DEMO) setAt.run(b.at[0], b.at[1], b.id);
+    /* Y sus cortes, su tipo. */
+    const setStyle = db.prepare('UPDATE services SET style = ? WHERE id = ? AND style IS NULL');
+    for (const b of DEMO) b.services.forEach(([, style], i) => setStyle.run(style, `${b.id}-${i}`));
     return;
   }
 
@@ -189,13 +197,15 @@ export function seedDemo(db: DB) {
   const insBarber = db.prepare(`INSERT INTO barbers
     (id, name, area, bio, tags, rating, free_today, open_now, work_days, lat, lng, map_x, map_y, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`);
-  const insService = db.prepare('INSERT INTO services (id, barber_id, name, price_cents, position) VALUES (?, ?, ?, NULL, ?)');
+  const insService = db.prepare(
+    'INSERT INTO services (id, barber_id, name, price_cents, style, position, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?)',
+  );
 
   transaction(db, () => {
     for (const b of DEMO) {
       insBarber.run(b.id, b.name, b.area, b.bio, JSON.stringify(b.tags), b.rating, b.free, b.open,
         JSON.stringify(b.days), b.at[0], b.at[1], now, now);
-      b.services.forEach((name, i) => insService.run(`${b.id}-${i}`, b.id, name, i));
+      b.services.forEach(([name, style], i) => insService.run(`${b.id}-${i}`, b.id, name, style, i, now));
     }
   });
 }

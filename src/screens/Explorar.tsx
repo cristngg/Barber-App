@@ -18,6 +18,9 @@ const FILTERS = [
   { id: 'fade', label: 'Fade' },
   { id: 'barba', label: 'Barba' },
   { id: 'disenos', label: 'Diseños' },
+  { id: 'trenzas', label: 'Trenzas' },
+  { id: 'alisado', label: 'Alisado' },
+  { id: 'tinte', label: 'Tinte' },
   { id: 'ninos', label: 'Niños' },
 ] as const;
 

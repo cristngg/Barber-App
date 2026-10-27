@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type RequestHandler, type Res
 import { OAuth2Client } from 'google-auth-library';
 import { transaction, type DB } from './db.js';
 import { burnTime, hashPassword, verifyPassword } from './passwords.js';
+import { matches, STYLE_ORDER, STYLES } from './search.js';
 
 /*
  * API de Filo.
@@ -39,15 +40,8 @@ export type AppOptions = {
 const SESSION_IDLE_MS = 180 * 24 * 60 * 60 * 1000;
 const TOUCH_EVERY_MS = 60 * 60 * 1000;
 
-const SPECIALTIES: Record<string, string> = {
-  fade: 'Fade',
-  barba: 'Barba',
-  disenos: 'Diseños',
-  ninos: 'Niños',
-  clasico: 'Clásico',
-  navaja: 'Navaja',
-};
-const SPECIALTY_ORDER = Object.keys(SPECIALTIES);
+const SPECIALTIES = STYLES;
+const SPECIALTY_ORDER = STYLE_ORDER;
 
 const PHOTO_TYPES: Record<string, { ext: string; magic: number[] }> = {
   'image/jpeg': { ext: 'jpg', magic: [0xff, 0xd8, 0xff] },
@@ -203,7 +197,14 @@ function toService(row: Row) {
     name: row.name as string,
     price: row.price_cents == null ? null : (row.price_cents as number) / 100,
     photo: (row.photo as string | null) ?? undefined,
+    style: (row.style as string | null) ?? null,
   };
+}
+
+/* El tipo de corte: uno de STYLES. */
+function cutStyle(value: unknown): string {
+  if (typeof value !== 'string' || !(value in STYLES)) throw new HttpError(400, 'Elige el tipo de corte.');
+  return value;
 }
 
 function toBarber(row: Row, services: Row[]) {
@@ -633,9 +634,10 @@ export function createApp({
     const name = text(req.body?.name, 'el nombre del corte', { max: 40 });
     const cents = price(req.body?.price);
     const photo = ownPhoto(req.body?.photo, req.userId!);
+    const style = cutStyle(req.body?.style);
     const pos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS p FROM services WHERE barber_id = ?').get(row.id as string) as Row;
-    db.prepare('INSERT INTO services (id, barber_id, name, price_cents, photo, position) VALUES (?, ?, ?, ?, ?, ?)').run(
-      randomUUID(), row.id as string, name, cents, photo, pos.p as number,
+    db.prepare('INSERT INTO services (id, barber_id, name, price_cents, photo, style, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      randomUUID(), row.id as string, name, cents, photo, style, pos.p as number, Date.now(),
     );
     res.status(201).json(loadBarber(q.barber.get(row.id as string) as Row));
   });
@@ -647,7 +649,10 @@ export function createApp({
     const name = text(req.body?.name, 'el nombre del corte', { max: 40 });
     const cents = price(req.body?.price);
     const photo = ownPhoto(req.body?.photo, req.userId!);
-    db.prepare('UPDATE services SET name = ?, price_cents = ?, photo = ? WHERE id = ?').run(name, cents, photo, service.id as string);
+    const style = cutStyle(req.body?.style);
+    db.prepare('UPDATE services SET name = ?, price_cents = ?, photo = ?, style = ? WHERE id = ?').run(
+      name, cents, photo, style, service.id as string,
+    );
     if (photo !== service.photo) dropPhoto(service.photo);
     res.json(loadBarber(q.barber.get(row.id as string) as Row));
   });
@@ -659,6 +664,72 @@ export function createApp({
     db.prepare('DELETE FROM services WHERE id = ?').run(service.id as string);
     dropPhoto(service.photo);
     res.json(loadBarber(q.barber.get(row.id as string) as Row));
+  });
+
+  /*
+   * Muro de cortes: los cortes de todos los barberos, para buscar por estilo ("trenzas", "alisado",
+   * "pintado") y bajar sin fin. Con `near`, los más cercanos primero; si no, los más recientes.
+   * Filtra en memoria: sirve bien hasta unos miles de cortes; más allá, conviene un índice de búsqueda.
+   */
+  app.get('/api/cuts', auth, (req, res) => {
+    const query = typeof req.query.q === 'string' ? req.query.q.slice(0, 80) : '';
+    const style = typeof req.query.style === 'string' && req.query.style in STYLES ? req.query.style : null;
+    const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 12));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const [nearLat, nearLng] = String(req.query.near ?? '').split(',').map(Number);
+    const near = Number.isFinite(nearLat) && Number.isFinite(nearLng) ? { lat: nearLat, lng: nearLng } : null;
+
+    const rows = db
+      .prepare(
+        `SELECT s.*, b.name AS barber_name, b.area, b.tags, b.lat, b.lng, b.rating, b.free_today, b.avatar
+         FROM services s JOIN barbers b ON b.id = s.barber_id`,
+      )
+      .all() as Row[];
+
+    const km = (r: Row) => {
+      if (!near || r.lat == null) return Infinity;
+      const rad = Math.PI / 180;
+      const x = ((r.lng as number) - near.lng) * Math.cos(((r.lat as number) + near.lat) * 0.5 * rad);
+      const y = (r.lat as number) - near.lat;
+      return Math.sqrt(x * x + y * y) * 111.32;
+    };
+
+    const found = rows
+      .filter((r) => !style || r.style === style)
+      .filter((r) =>
+        matches(
+          {
+            cutName: r.name as string,
+            style: r.style as string | null,
+            barberName: r.barber_name as string,
+            area: r.area as string,
+            barberTags: JSON.parse(r.tags as string),
+          },
+          query,
+        ),
+      )
+      .map((r) => ({ r, km: km(r) }))
+      /* Con foto primero (es un muro de fotos); luego cercanía o lo más nuevo. */
+      .sort((a, b) =>
+        Number(!a.r.photo) - Number(!b.r.photo) ||
+        (near ? a.km - b.km : 0) ||
+        ((b.r.created_at as number) ?? 0) - ((a.r.created_at as number) ?? 0),
+      );
+
+    const page = found.slice(offset, offset + limit).map(({ r, km }) => ({
+      ...toService(r),
+      styleLabel: r.style ? STYLES[r.style as string] : null,
+      distanceKm: Number.isFinite(km) ? Math.round(km * 10) / 10 : null,
+      barber: {
+        id: r.barber_id as string,
+        name: r.barber_name as string,
+        area: r.area as string,
+        rating: r.rating as number | null,
+        freeToday: !!r.free_today,
+        avatar: (r.avatar as string | null) ?? undefined,
+      },
+    }));
+    res.json({ items: page, total: found.length, nextOffset: offset + limit < found.length ? offset + limit : null });
   });
 
   app.get('/api/me/agenda', auth, (req: AuthedRequest, res) => {

@@ -31,7 +31,20 @@ export type BarberPatch = Partial<
 export type TravelMode = 'car' | 'foot';
 export type Route = { mode: TravelMode; distanceM: number; durationS: number; path: [number, number][] };
 
-export type ServiceInput = { name: string; price: number; photo?: string | null };
+export type ServiceInput = { name: string; price: number; photo?: string | null; style: string };
+
+/* Un corte del muro de búsqueda, con lo justo de su barbero. */
+export type Cut = {
+  id: string;
+  name: string;
+  price: number | null;
+  photo?: string;
+  style: string | null;
+  styleLabel: string | null;
+  distanceKm: number | null;
+  barber: { id: string; name: string; area: string; rating: number | null; freeToday: boolean; avatar?: string };
+};
+export type CutsPage = { items: Cut[]; total: number; nextOffset: number | null };
 
 export class ApiError extends Error {
   constructor(
@@ -121,6 +134,12 @@ export const api = {
   updateService: (id: string, s: ServiceInput) => request<Barber>(`/api/me/barber/services/${id}`, json('PATCH', s)),
   removeService: (id: string) => request<Barber>(`/api/me/barber/services/${id}`, { method: 'DELETE' }),
   agenda: () => request<Appointment[]>('/api/me/agenda'),
+  cuts: (p: { q: string; style: string | null; near: LatLng | null; offset: number; limit?: number }) => {
+    const params = new URLSearchParams({ q: p.q, offset: String(p.offset), limit: String(p.limit ?? 12) });
+    if (p.style) params.set('style', p.style);
+    if (p.near) params.set('near', `${p.near.lat},${p.near.lng}`);
+    return request<CutsPage>(`/api/cuts?${params}`);
+  },
   route: (from: LatLng, to: LatLng, mode: TravelMode) =>
     request<Route>(`/api/route?from=${from.lat},${from.lng}&to=${to.lat},${to.lng}&mode=${mode}`),
 

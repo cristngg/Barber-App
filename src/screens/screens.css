@@ -433,3 +433,76 @@
   font: 500 16px/20px var(--font-body);
   color: var(--color-muted);
 }
+
+/* ---------- Cortes ---------- */
+.cut-grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.cut-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+/* La foto del corte manda: grande, sin marco. */
+.cut-card__photo {
+  aspect-ratio: 4 / 5;
+  border-radius: var(--radius-lg);
+}
+
+.cut-card:active .cut-card__photo {
+  opacity: 0.85;
+}
+
+.cut-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cut-card__name {
+  font: 600 15px/20px var(--font-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cut-card__price {
+  font: 700 20px/22px var(--font-display);
+  letter-spacing: 0.02em;
+  color: var(--color-brass-ink);
+}
+
+.cut-card__barber {
+  font: 400 13px/18px var(--font-body);
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cut-grid__status {
+  text-align: center;
+  padding: var(--space-2) 0;
+}
+
+/* El corte que se tocó en "Cortes", resaltado en el perfil. */
+.portfolio__item--picked .portfolio__photo {
+  outline: 3px solid var(--color-brass);
+  outline-offset: 2px;
+}
+
+.chip-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

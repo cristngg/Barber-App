@@ -6,6 +6,7 @@ type Item = { to: string; label: string; icon: IconName; end?: boolean };
 
 const clientItems: Item[] = [
   { to: '/', label: 'Explorar', icon: 'pin', end: true },
+  { to: '/cortes', label: 'Cortes', icon: 'scissors' },
   { to: '/citas', label: 'Citas', icon: 'calendar' },
   { to: '/cuenta', label: 'Cuenta', icon: 'user' },
 ];
@@ -16,7 +17,7 @@ const barberItems: Item[] = [
   { to: '/cuenta', label: 'Cuenta', icon: 'user' },
 ];
 
-/* Tres destinos por rol. El activo lleva latón y una pestaña arriba; los demás, humo. */
+/* Tres o cuatro destinos por rol. El activo lleva latón y una pestaña arriba; los demás, humo. */
 export function BottomNav() {
   const { mode, myBarber } = useAppState();
   const isBarber = mode === 'barber' && !!myBarber;

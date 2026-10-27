@@ -216,11 +216,16 @@ describe('Filo API', () => {
     assert.deepEqual(patched.json.workDays, [2, 6]);
     assert.equal(patched.json.cover, photo.json.url);
 
-    const badPrice = await api('/api/me/barber/services', { token, method: 'POST', body: { name: 'Fade', price: -3 } });
+    const badPrice = await api('/api/me/barber/services', { token, method: 'POST', body: { name: 'Fade', price: -3, style: 'fade' } });
     assert.equal(badPrice.status, 400);
 
-    const withCut = await api('/api/me/barber/services', { token, method: 'POST', body: { name: 'Fade bajo', price: 12.5 } });
+    const noStyle = await api('/api/me/barber/services', { token, method: 'POST', body: { name: 'Fade bajo', price: 12.5 } });
+    assert.equal(noStyle.status, 400);
+    assert.equal(noStyle.json.error, 'Elige el tipo de corte.');
+
+    const withCut = await api('/api/me/barber/services', { token, method: 'POST', body: { name: 'Fade bajo', price: 12.5, style: 'fade' } });
     assert.equal(withCut.status, 201);
+    assert.equal(withCut.json.services[0].style, 'fade');
     assert.equal(withCut.json.services[0].price, 12.5);
 
     const me = await api('/api/me', { token });
@@ -273,6 +278,42 @@ describe('Filo API', () => {
     assert.equal((await api('/api/route?from=8.98,-79.52&to=60,-79.5', { token })).status, 404);
   });
 
+  it('busca cortes por estilo, con sinónimos y faltas de ortografía', async () => {
+    const token = await session();
+    await api('/api/me/barber', { token, method: 'POST', body: { name: 'Estilos Yari', area: 'Calidonia' } });
+    await api('/api/me/barber', { token, method: 'PATCH', body: { location: { lat: 8.97, lng: -79.53 } } });
+    const add = (name: string, style: string) =>
+      api('/api/me/barber/services', { token, method: 'POST', body: { name, price: 20, style } });
+    await add('Box braids', 'trenzas');
+    await add('Keratina brasileña', 'alisado');
+    await add('Rayitos rubios', 'tinte');
+
+    const cuts = (q: string, extra = '') => api(`/api/cuts?q=${encodeURIComponent(q)}${extra}`, { token });
+    assert.equal((await api('/api/cuts?q=trenzas')).status, 401, 'pide sesión');
+
+    const names = async (q: string, extra = '') => ((await cuts(q, extra)).json.items as { name: string }[]).map((c) => c.name);
+    assert.deepEqual(await names('trenzas'), ['Box braids'], 'por tipo, aunque el nombre no diga "trenzas"');
+    assert.deepEqual(await names('alizado'), ['Keratina brasileña'], 'alizado = alisado');
+    assert.deepEqual(await names('pintado'), ['Rayitos rubios'], 'pintado = tinte');
+    assert.deepEqual(await names('KERATINA'), ['Keratina brasileña']);
+    assert.ok((await names('fade')).includes('Fade bajo'), 'también los de ejemplo');
+    assert.deepEqual(await names('', '&style=tinte'), ['Rayitos rubios']);
+    assert.deepEqual(await names('trenzas calidonia'), ['Box braids'], 'varias palabras: tipo y barrio');
+    assert.deepEqual(await names('trenzas obarrio'), []);
+
+    const one = (await cuts('trenzas', '&near=8.98,-79.52')).json.items[0];
+    assert.equal(one.styleLabel, 'Trenzas');
+    assert.equal(one.barber.name, 'Estilos Yari');
+    assert.ok(one.distanceKm > 1 && one.distanceKm < 2, `distancia ${one.distanceKm}`);
+
+    const page1 = (await cuts('', '&limit=5')).json;
+    assert.equal(page1.items.length, 5);
+    assert.equal(page1.nextOffset, 5);
+    const page2 = (await cuts('', `&limit=5&offset=${page1.nextOffset}`)).json;
+    const ids = new Set([...page1.items, ...page2.items].map((c: { id: string }) => c.id));
+    assert.equal(ids.size, page1.items.length + page2.items.length, 'las páginas no se repiten');
+  });
+
   it('nadie usa las fotos de otro', async () => {
     const owner = await session();
     const photo = await api('/api/photos', { token: owner, method: 'POST', body: JPEG, type: 'image/jpeg' });
@@ -285,7 +326,7 @@ describe('Filo API', () => {
   it('un cliente aparta, la hora queda tomada y el barbero confirma', async () => {
     const barberToken = await session();
     const barber = (await api('/api/me/barber', { token: barberToken, method: 'POST', body: { name: 'Agenda', area: 'Y' } })).json;
-    const withCut = (await api('/api/me/barber/services', { token: barberToken, method: 'POST', body: { name: 'Corte', price: 10 } })).json;
+    const withCut = (await api('/api/me/barber/services', { token: barberToken, method: 'POST', body: { name: 'Corte', price: 10, style: 'clasico' } })).json;
     const serviceId = withCut.services[0].id;
     const date = nextDate(barber.workDays);
 

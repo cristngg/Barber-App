@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { formatDistance, formatPrice } from '../data/barbers';
 import { formatHour, isSameDay, nextWorkDays, weekdayShort } from '../data/dates';
 import { api, ApiError, errorMessage } from '../state/api';
@@ -19,7 +19,11 @@ export function Reservar() {
   const barber = getBarber(id);
 
   const days = useMemo(() => (barber ? nextWorkDays(barber.workDays, 5) : []), [barber]);
-  const [serviceId, setServiceId] = useState(barber?.services[0]?.id ?? '');
+  const [params] = useSearchParams();
+  const wanted = params.get('servicio');
+  const [serviceId, setServiceId] = useState(
+    barber?.services.find((s) => s.id === wanted)?.id ?? barber?.services[0]?.id ?? '',
+  );
   const [day, setDay] = useState<Date | undefined>(days[0]);
   const [hour, setHour] = useState<number | null>(null);
   /* Horas tomadas o ya pasadas del día elegido, según el servidor. null = cargando. */
