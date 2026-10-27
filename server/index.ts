@@ -34,6 +34,7 @@ const app = createApp({
   googleClientId: process.env.GOOGLE_CLIENT_ID || undefined,
   devLogin,
   trustProxy: process.env.TRUST_PROXY === '1',
+  routingUrl: process.env.ROUTING_URL || undefined,
 });
 
 const port = Number(process.env.PORT ?? 3001);

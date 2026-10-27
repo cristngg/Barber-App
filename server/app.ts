@@ -25,6 +25,10 @@ export type AppOptions = {
   googleClientId?: string;
   /* Solo desarrollo: permite entrar con un nombre, sin Google. */
   devLogin?: boolean;
+  /* Servicio de rutas compatible con OSRM. Por defecto, el gratuito de OpenStreetMap (FOSSGIS). */
+  routingUrl?: string;
+  /* Reemplazable en pruebas. */
+  fetchImpl?: typeof fetch;
   /* Detrás de un proxy (Nginx, Cloudflare, el del hosting): usar la IP real del cliente para limitar intentos. */
   trustProxy?: boolean;
   /* Verifica el token de Google; reemplazable en pruebas. */
@@ -247,6 +251,8 @@ export function createApp({
   googleClientId,
   devLogin = false,
   trustProxy = false,
+  routingUrl = 'https://routing.openstreetmap.de',
+  fetchImpl = fetch,
   verifyGoogle = googleClientId ? googleVerifier(googleClientId) : undefined,
 }: AppOptions) {
   mkdirSync(uploadDir, { recursive: true });
@@ -496,6 +502,61 @@ export function createApp({
     if (!barber) throw new HttpError(404, 'Ese barbero ya no existe.');
     res.json(barber);
   });
+
+  /*
+   * Ruta para "Cómo llegar". Pasa por aquí (y no directo desde el teléfono) para guardar en caché,
+   * limitar el uso del servicio gratuito y poder cambiar de proveedor sin tocar la app.
+   */
+  const routeCache = new Map<string, { at: number; body: unknown }>();
+  const routeLimiter = attemptLimiter(30, 60 * 1000);
+
+  app.get(
+    '/api/route',
+    auth,
+    handle(async (req, res) => {
+      const parse = (v: unknown) => {
+        const [lat, lng] = String(v ?? '').split(',').map(Number);
+        return coordinates({ lat, lng });
+      };
+      const from = parse(req.query.from);
+      const to = parse(req.query.to);
+      if (!from || !to) throw new HttpError(400, 'Ubicación no válida.');
+      const mode = req.query.mode === 'foot' ? 'foot' : 'car';
+
+      const round = (n: number) => n.toFixed(4); // ~10 m: rutas casi iguales comparten caché
+      const key = `${mode}|${round(from.lat)},${round(from.lng)}|${round(to.lat)},${round(to.lng)}`;
+      const cached = routeCache.get(key);
+      if (cached && Date.now() - cached.at < 10 * 60 * 1000) {
+        res.json(cached.body);
+        return;
+      }
+
+      const limitKey = `route|${req.userId}`;
+      if (routeLimiter.blocked(limitKey)) throw new HttpError(429, 'Muchas rutas seguidas. Espera un momento.');
+      routeLimiter.fail(limitKey);
+
+      const url = `${routingUrl}/routed-${mode}/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`;
+      let data: { code?: string; routes?: { distance: number; duration: number; geometry: { coordinates: [number, number][] } }[] };
+      try {
+        const r = await fetchImpl(url, { signal: AbortSignal.timeout(8000), headers: { 'user-agent': 'Filo (barberos)' } });
+        data = (await r.json()) as typeof data;
+      } catch {
+        throw new HttpError(502, 'No pudimos trazar la ruta. Prueba otra vez.');
+      }
+      const best = data.code === 'Ok' ? data.routes?.[0] : undefined;
+      if (!best) throw new HttpError(404, 'No encontramos una ruta hasta ahí.');
+
+      const body = {
+        mode,
+        distanceM: Math.round(best.distance),
+        durationS: Math.round(best.duration),
+        path: best.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      };
+      if (routeCache.size > 500) routeCache.clear();
+      routeCache.set(key, { at: Date.now(), body });
+      res.json(body);
+    }),
+  );
 
   app.get('/api/barbers/:id/availability', (req, res) => {
     const row = q.barber.get(req.params.id) as Row | undefined;

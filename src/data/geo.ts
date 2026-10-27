@@ -19,7 +19,15 @@ export function formatKm(km: number) {
   return `${km < 10 ? km.toFixed(1) : Math.round(km)} km`;
 }
 
-/* Abre la ruta en Google Maps (o la app de mapas del teléfono). */
-export function directionsUrl(to: LatLng) {
-  return `https://www.google.com/maps/dir/?api=1&destination=${to.lat},${to.lng}`;
+/* 612 → "10 min", 4000 → "1 h 7 min" */
+export function formatDuration(seconds: number) {
+  const min = Math.max(1, Math.round(seconds / 60));
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  return min % 60 ? `${h} h ${min % 60} min` : `${h} h`;
+}
+
+/* Abre la ruta en Google Maps (o la app de mapas del teléfono), paso a paso. */
+export function directionsUrl(to: LatLng, mode: 'car' | 'foot' = 'car') {
+  return `https://www.google.com/maps/dir/?api=1&destination=${to.lat},${to.lng}&travelmode=${mode === 'foot' ? 'walking' : 'driving'}`;
 }

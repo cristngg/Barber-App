@@ -1,4 +1,5 @@
 import type { Barber } from '../data/barbers';
+import type { LatLng } from '../data/geo';
 import { load, save } from './storage';
 
 /* Cliente de la API. El token de sesión de este teléfono vive en localStorage. */
@@ -26,6 +27,9 @@ export type BarberPatch = Partial<
     cover: string | null;
   }
 >;
+
+export type TravelMode = 'car' | 'foot';
+export type Route = { mode: TravelMode; distanceM: number; durationS: number; path: [number, number][] };
 
 export type ServiceInput = { name: string; price: number; photo?: string | null };
 
@@ -117,6 +121,8 @@ export const api = {
   updateService: (id: string, s: ServiceInput) => request<Barber>(`/api/me/barber/services/${id}`, json('PATCH', s)),
   removeService: (id: string) => request<Barber>(`/api/me/barber/services/${id}`, { method: 'DELETE' }),
   agenda: () => request<Appointment[]>('/api/me/agenda'),
+  route: (from: LatLng, to: LatLng, mode: TravelMode) =>
+    request<Route>(`/api/route?from=${from.lat},${from.lng}&to=${to.lat},${to.lng}&mode=${mode}`),
 
   uploadPhoto: (blob: Blob) =>
     request<{ url: string }>('/api/photos', { method: 'POST', headers: { 'content-type': blob.type }, body: blob }),

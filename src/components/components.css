@@ -898,3 +898,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Ruta de "Cómo llegar": borde oscuro y línea de latón (sobrescribe el color que pone Leaflet). */
+.map .map-route-casing {
+  stroke: var(--pin-ring);
+  stroke-opacity: 0.85;
+}
+
+.map .map-route {
+  stroke: var(--color-brass);
+  stroke-opacity: 1;
+}

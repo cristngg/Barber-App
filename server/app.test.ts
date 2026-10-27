@@ -10,6 +10,7 @@ import { createApp } from './app.js';
 import { openDb, seedDemo } from './db.js';
 
 let server: Server;
+const routeCalls: string[] = [];
 let base: string;
 let dir: string;
 
@@ -23,7 +24,16 @@ before(async () => {
     const sub = credential.slice('google:'.length);
     return { sub, email: `${sub}@gmail.com`, emailVerified: true, name: `Persona ${sub}` };
   };
-  server = createApp({ db, uploadDir: join(dir, 'uploads'), googleClientId: 'test', verifyGoogle }).listen(0);
+  /* Servicio de rutas falso con la forma de respuesta de OSRM. */
+  const fetchImpl = (async (url: string) => {
+    routeCalls.push(String(url));
+    const m = String(url).match(/driving\/([-\d.]+),([-\d.]+);([-\d.]+),([-\d.]+)/)!;
+    const [lng1, lat1, lng2, lat2] = m.slice(1).map(Number);
+    if (lat2 > 50) return new Response(JSON.stringify({ code: 'NoRoute', routes: [] }));
+    const route = { distance: 3400.4, duration: 612.6, geometry: { coordinates: [[lng1, lat1], [lng1, lat2], [lng2, lat2]] } };
+    return new Response(JSON.stringify({ code: 'Ok', routes: [route] }));
+  }) as typeof fetch;
+  server = createApp({ db, uploadDir: join(dir, 'uploads'), googleClientId: 'test', verifyGoogle, fetchImpl }).listen(0);
   await new Promise((r) => server.once('listening', r));
   base = `http://localhost:${(server.address() as AddressInfo).port}`;
 });
@@ -234,6 +244,33 @@ describe('Filo API', () => {
 
     const cleared = await api('/api/me/barber', { token, method: 'PATCH', body: { location: null } });
     assert.equal(cleared.json.location, null);
+  });
+
+  it('traza la ruta para "Cómo llegar"', async () => {
+    const token = await session();
+    const q = '/api/route?from=8.9851,-79.5245&to=8.9961,-79.5068';
+    assert.equal((await api(q)).status, 401, 'pide sesión');
+
+    const car = await api(q, { token });
+    assert.equal(car.status, 200);
+    assert.deepEqual(car.json, {
+      mode: 'car',
+      distanceM: 3400,
+      durationS: 613,
+      path: [[8.9851, -79.5245], [8.9961, -79.5245], [8.9961, -79.5068]],
+    });
+    assert.match(routeCalls.at(-1)!, /routed-car\/route\/v1\/driving\/-79.5245,8.9851;-79.5068,8.9961/);
+
+    const calls = routeCalls.length;
+    await api(q, { token });
+    assert.equal(routeCalls.length, calls, 'la segunda vez sale de la caché');
+
+    const foot = await api(q + '&mode=foot', { token });
+    assert.equal(foot.json.mode, 'foot');
+    assert.match(routeCalls.at(-1)!, /routed-foot/);
+
+    assert.equal((await api('/api/route?from=x&to=8.9,-79.5', { token })).status, 400);
+    assert.equal((await api('/api/route?from=8.98,-79.52&to=60,-79.5', { token })).status, 404);
   });
 
   it('nadie usa las fotos de otro', async () => {

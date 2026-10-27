@@ -37,6 +37,7 @@ function useLeaflet(options: L.MapOptions) {
     const remeasure = window.setTimeout(() => m.invalidateSize(), 100);
     return () => {
       window.clearTimeout(remeasure);
+      m.stop(); // salir a mitad de un zoom animado rompe a Leaflet si no se detiene antes
       m.remove();
       map.current = null;
     };
@@ -52,13 +53,28 @@ type BarberMapProps = {
   onSelect?: (id: string | null) => void;
   /* Interactivo (arrastrar y acercar) o una vista fija. */
   interactive?: boolean;
+  /* Ruta a dibujar (Cómo llegar). Si hay ruta, el encuadre la sigue a ella. */
+  route?: LatLng[] | null;
+  /* Espacio libre al encuadrar: [arriba, abajo] en px, p. ej. por una hoja inferior. */
+  fitInset?: [number, number];
   className?: string;
   label: string;
   children?: ReactNode;
 };
 
 /* Barberos en el mapa; tocar un pin lo selecciona. */
-export function BarberMap({ pins, here, selectedId, onSelect, interactive = true, className = '', label, children }: BarberMapProps) {
+export function BarberMap({
+  pins,
+  here,
+  selectedId,
+  onSelect,
+  interactive = true,
+  route,
+  fitInset = [36, 36],
+  className = '',
+  label,
+  children,
+}: BarberMapProps) {
   const { box, map } = useLeaflet({
     center: [DEFAULT_CENTER.lat, DEFAULT_CENTER.lng],
     zoom: 13,
@@ -70,6 +86,7 @@ export function BarberMap({ pins, here, selectedId, onSelect, interactive = true
     keyboard: interactive,
   });
   const layer = useRef<L.LayerGroup | null>(null);
+  const routeLayer = useRef<L.LayerGroup | null>(null);
   const select = useRef(onSelect);
   select.current = onSelect;
 
@@ -98,17 +115,37 @@ export function BarberMap({ pins, here, selectedId, onSelect, interactive = true
     layer.current = group;
   }, [map, pins, here, selectedId, interactive]);
 
-  /* Encuadre: todos los pines (y yo) cuando cambia el conjunto. */
-  const pinKey = pins.map((p) => p.id).join(',');
-  const hereKey = here ? `${here.lat.toFixed(3)},${here.lng.toFixed(3)}` : '';
+  /* La ruta: un borde oscuro debajo y la línea de latón encima, para que se lea sobre cualquier calle. */
   useEffect(() => {
     const m = map.current;
     if (!m) return;
-    const points = pins.map((p) => L.latLng(p.at.lat, p.at.lng));
-    if (here) points.push(L.latLng(here.lat, here.lng));
-    if (points.length === 1) m.setView(points[0], 15);
-    else if (points.length > 1) m.fitBounds(L.latLngBounds(points), { padding: [36, 36], maxZoom: 15 });
-  }, [map, pinKey, hereKey]);
+    routeLayer.current?.remove();
+    routeLayer.current = null;
+    if (!route?.length) return;
+    const line = route.map((p) => L.latLng(p.lat, p.lng));
+    const group = L.layerGroup([
+      L.polyline(line, { className: 'map-route-casing', weight: 10, lineCap: 'round', lineJoin: 'round', interactive: false }),
+      L.polyline(line, { className: 'map-route', weight: 6, lineCap: 'round', lineJoin: 'round', interactive: false }),
+    ]).addTo(m);
+    routeLayer.current = group;
+  }, [map, route]);
+
+  /* Encuadre: la ruta si hay; si no, todos los pines (y yo) cuando cambia el conjunto. */
+  const pinKey = pins.map((p) => p.id).join(',');
+  const hereKey = here ? `${here.lat.toFixed(3)},${here.lng.toFixed(3)}` : '';
+  const routeKey = route?.length ? `${route.length}:${route[0].lat},${route[0].lng}` : '';
+  const [insetTop, insetBottom] = fitInset;
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const points = route?.length
+      ? route.map((p) => L.latLng(p.lat, p.lng))
+      : [...pins.map((p) => L.latLng(p.at.lat, p.at.lng)), ...(here ? [L.latLng(here.lat, here.lng)] : [])];
+    /* Sin animación: si la pantalla se cierra a mitad de un zoom animado, Leaflet falla. */
+    const fit = { paddingTopLeft: L.point(36, insetTop), paddingBottomRight: L.point(36, insetBottom), maxZoom: 16, animate: false };
+    if (points.length === 1) m.setView(points[0], 15, { animate: false });
+    else if (points.length > 1) m.fitBounds(L.latLngBounds(points), fit);
+  }, [map, pinKey, hereKey, routeKey, insetTop, insetBottom]);
 
   /* Tocar fuera de un pin quita la selección. */
   useEffect(() => {
@@ -171,7 +208,7 @@ export function LocationPicker({ value, onChange, label }: PickerProps) {
     } else {
       marker.current.setLatLng([value.lat, value.lng]);
     }
-    if (!m.getBounds().pad(-0.1).contains([value.lat, value.lng])) m.setView([value.lat, value.lng], Math.max(m.getZoom(), 16));
+    if (!m.getBounds().pad(-0.1).contains([value.lat, value.lng])) m.setView([value.lat, value.lng], Math.max(m.getZoom(), 16), { animate: false });
   }, [map, value]);
 
   return (

@@ -1,6 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
 import { formatDistance, formatPrice } from '../data/barbers';
-import { directionsUrl } from '../data/geo';
 import { BarberMap } from '../components/Map';
 import { ButtonLink } from '../components/Button';
 import { Icon } from '../components/Icon';
@@ -60,15 +59,9 @@ export function Perfil() {
               label={`Ubicación de ${barber.name}`}
               className="profile-map"
             />
-            <a
-              href={directionsUrl(barber.location)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn--secondary"
-            >
-              <Icon name="pin" size={20} />
+            <ButtonLink to={`/barbero/${barber.id}/ruta`} variant="secondary" icon={<Icon name="pin" size={20} />}>
               Cómo llegar
-            </a>
+            </ButtonLink>
           </section>
         )}
 

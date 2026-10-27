@@ -12,6 +12,7 @@ import { MiPerfil } from './screens/MiPerfil';
 import { NotFound } from './screens/NotFound';
 import { Perfil } from './screens/Perfil';
 import { Reservar } from './screens/Reservar';
+import { Ruta } from './screens/Ruta';
 import { Suscripcion } from './screens/Suscripcion';
 import { useAppState } from './state/AppState';
 
@@ -42,6 +43,7 @@ export function App() {
           <Route path="/" element={<Explorar />} />
           <Route path="/barbero/:id" element={<Perfil />} />
           <Route path="/barbero/:id/reservar" element={<Reservar />} />
+          <Route path="/barbero/:id/ruta" element={<Ruta />} />
           <Route path="/citas" element={<Citas />} />
           <Route path="/cuenta" element={<Cuenta />} />
           <Route path="/soy-barbero" element={<Suscripcion />} />
