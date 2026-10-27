@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:server": "DEV_LOGIN=1 tsx watch server/index.ts",
+    "dev:server": "cross-env DEV_LOGIN=1 tsx watch server/index.ts",
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
-    "start": "NODE_ENV=production tsx server/index.ts",
+    "start": "cross-env NODE_ENV=production tsx server/index.ts",
     "test": "tsx --test server/*.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
+    "cross-env": "^7.0.3",
     "express": "^4.22.3",
     "google-auth-library": "^9.15.1",
     "react": "^18.3.1",
