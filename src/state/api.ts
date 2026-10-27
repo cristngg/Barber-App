@@ -92,6 +92,8 @@ export const api = {
   config: () => request<Config>('/api/config', {}, false),
   signInWithGoogle: (credential: string) => startSession('/api/auth/google', { credential }),
   signInDev: (name: string) => startSession('/api/auth/dev', { name }),
+  signInWithPassword: (email: string, password: string) => startSession('/api/auth/login', { email, password }),
+  register: (name: string, email: string, password: string) => startSession('/api/auth/register', { name, email, password }),
   signOut: async () => {
     const current = token;
     setToken(null);

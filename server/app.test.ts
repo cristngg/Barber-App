@@ -21,7 +21,7 @@ before(async () => {
   const verifyGoogle = async (credential: string) => {
     if (!credential.startsWith('google:')) throw new Error('inválida');
     const sub = credential.slice('google:'.length);
-    return { sub, email: `${sub}@gmail.com`, name: `Persona ${sub}` };
+    return { sub, email: `${sub}@gmail.com`, emailVerified: true, name: `Persona ${sub}` };
   };
   server = createApp({ db, uploadDir: join(dir, 'uploads'), googleClientId: 'test', verifyGoogle }).listen(0);
   await new Promise((r) => server.once('listening', r));
@@ -99,6 +99,57 @@ describe('Filo API', () => {
     await api('/api/auth/logout', { token: phone1.token, method: 'POST' });
     assert.equal((await api('/api/me', { token: phone1.token })).status, 401, 'cerrar sesión invalida ese token');
     assert.equal((await api('/api/me', { token: phone2.token })).status, 200, 'el otro teléfono sigue dentro');
+  });
+
+  it('crea cuenta con correo y contraseña y entra', async () => {
+    const reg = (body: object) => api('/api/auth/register', { method: 'POST', body });
+    const login = (email: string, password: string) => api('/api/auth/login', { method: 'POST', body: { email, password } });
+
+    assert.equal((await reg({ name: 'Ana', email: 'no-es-correo', password: 'larga1234' })).status, 400);
+    const short = await reg({ name: 'Ana', email: 'ana@correo.com', password: 'corta' });
+    assert.equal(short.status, 400);
+    assert.match(short.json.error, /al menos 8/);
+
+    const created = await reg({ name: 'Ana', email: 'Ana@Correo.com', password: 'larga1234' });
+    assert.equal(created.status, 201);
+    assert.equal(created.json.user.email, 'ana@correo.com');
+
+    const dup = await reg({ name: 'Otra', email: 'ANA@correo.com', password: 'otraclave1' });
+    assert.equal(dup.status, 409);
+
+    assert.equal((await login('ana@correo.com', 'equivocada')).status, 401);
+    const ok = await login(' ANA@correo.com ', 'larga1234');
+    assert.equal(ok.status, 201);
+    assert.equal(ok.json.user.id, created.json.user.id);
+    assert.equal((await api('/api/me', { token: ok.json.token })).json.user.name, 'Ana');
+
+    const ghost = await login('nadie@correo.com', 'larga1234');
+    assert.equal(ghost.json.error, 'Correo o contraseña incorrectos.');
+  });
+
+  it('frena a quien adivina contraseñas', async () => {
+    await api('/api/auth/register', { method: 'POST', body: { name: 'Beto', email: 'beto@correo.com', password: 'secreta123' } });
+    let last = 0;
+    for (let i = 0; i < 9; i++) {
+      last = (await api('/api/auth/login', { method: 'POST', body: { email: 'beto@correo.com', password: `mala${i}xxxx` } })).status;
+    }
+    assert.equal(last, 429);
+    const right = await api('/api/auth/login', { method: 'POST', body: { email: 'beto@correo.com', password: 'secreta123' } });
+    assert.equal(right.status, 429, 'bloqueado aunque ahora acierte');
+  });
+
+  it('une Google y contraseña cuando el correo es el mismo y está verificado', async () => {
+    const reg = await api('/api/auth/register', { method: 'POST', body: { name: 'Caro', email: 'caro@gmail.com', password: 'clave12345' } });
+    const viaGoogle = await signIn('caro');
+    assert.equal(viaGoogle.user.id, reg.json.user.id, 'misma persona');
+
+    const googleFirst = await signIn('dani');
+    const taken = await api('/api/auth/register', { method: 'POST', body: { name: 'Dani', email: 'dani@gmail.com', password: 'clave12345' } });
+    assert.equal(taken.status, 409);
+    assert.match(taken.json.error, /Google/);
+    const viaPassword = await api('/api/auth/login', { method: 'POST', body: { email: 'dani@gmail.com', password: 'clave12345' } });
+    assert.match(viaPassword.json.error, /Google/);
+    assert.ok(googleFirst.token);
   });
 
   it('sin Google configurado no deja entrar', async () => {

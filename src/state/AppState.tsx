@@ -16,6 +16,8 @@ type AppState = {
   user: User | null;
   signInWithGoogle: (credential: string) => Promise<void>;
   signInDev: (name: string) => Promise<void>;
+  signInWithPassword: (email: string, password: string) => Promise<void>;
+  register: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -117,6 +119,22 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     [loadMine],
   );
 
+  const signInWithPassword = useCallback(
+    async (email: string, password: string) => {
+      await api.signInWithPassword(email, password);
+      await loadMine();
+    },
+    [loadMine],
+  );
+
+  const register = useCallback(
+    async (name: string, email: string, password: string) => {
+      await api.register(name, email, password);
+      await loadMine();
+    },
+    [loadMine],
+  );
+
   const signOut = useCallback(async () => {
     await api.signOut();
     window.google?.accounts.id.disableAutoSelect();
@@ -179,6 +197,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       user,
       signInWithGoogle,
       signInDev,
+      signInWithPassword,
+      register,
       signOut,
       theme,
       setTheme,
@@ -197,7 +217,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       book,
       cancel,
     }),
-    [status, retry, config, user, signInWithGoogle, signInDev, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, createMyBarber, updateMyBarber,
+    [status, retry, config, user, signInWithGoogle, signInDev, signInWithPassword, register, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, createMyBarber, updateMyBarber,
       saveService, removeService, appointments, refreshAppointments, book, cancel],
   );
 

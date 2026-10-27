@@ -361,3 +361,36 @@
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
 }
+
+/* ---------- Entrar ---------- */
+.login-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.login-brand {
+  font-size: 72px;
+  line-height: 64px;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-muted);
+  font: 500 13px/18px var(--font-body);
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-line);
+}
+
+.login-fine {
+  text-align: center;
+}

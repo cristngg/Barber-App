@@ -4,7 +4,6 @@ import { Button } from '../components/Button';
 import { Chip, ChipRow } from '../components/Chip';
 import { Icon } from '../components/Icon';
 import { Screen, SectionHeader } from '../components/Screen';
-import { SignInPanel } from '../components/SignIn';
 import { useAppState, type Mode } from '../state/AppState';
 import './screens.css';
 
@@ -21,7 +20,7 @@ export function Cuenta() {
     <Screen footer={<BottomNav />}>
       <h1 className="t-title">Cuenta</h1>
 
-      {user ? (
+      {user && (
         <section className="stack-12">
           <div className="user-row">
             {user.picture ? (
@@ -37,11 +36,6 @@ export function Cuenta() {
           <Button variant="secondary" onClick={() => signOut().then(() => navigate('/'))}>
             Cerrar sesión
           </Button>
-        </section>
-      ) : (
-        <section className="stack-12">
-          <SectionHeader title="Entra a Filo" />
-          <SignInPanel />
         </section>
       )}
 

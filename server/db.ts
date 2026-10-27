@@ -14,8 +14,11 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT,
   name TEXT,
   picture TEXT,
+  password_hash TEXT,
   created_at INTEGER NOT NULL
 );
+-- Un correo, una cuenta (sin importar mayúsculas), entre con Google o con contraseña.
+CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email COLLATE NOCASE);
 
 -- Una fila por teléfono con sesión abierta. Se guarda el hash del token, nunca el token.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -86,8 +89,17 @@ export function openDb(file: string): DB {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   migrateAnonymousUsers(db);
+  addPasswordColumn(db);
   db.exec(SCHEMA);
   return db;
+}
+
+/* Bases creadas antes de correo y contraseña no tienen la columna. */
+function addPasswordColumn(db: DB) {
+  const columns = db.prepare("SELECT name FROM pragma_table_info('users')").all() as { name: string }[];
+  if (columns.length && !columns.some((c) => c.name === 'password_hash')) {
+    db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT');
+  }
 }
 
 /*

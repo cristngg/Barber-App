@@ -31,6 +31,7 @@ npm test             # pruebas de la API
 | `BUSINESS_TZ` | `America/Panama` | Zona horaria que define qué es "hoy" y qué horas ya pasaron |
 | `SEED_DEMO` | `1` | Con `0`, no crea los 3 barberos de ejemplo en una base vacía |
 | `GOOGLE_CLIENT_ID` | (vacío) | ID de cliente OAuth de Google. Sin él, nadie puede entrar con Google. |
+| `TRUST_PROXY` | `0` | Con `1`, usa la IP real del cliente cuando el servidor está detrás de un proxy (Nginx, Cloudflare, el del hosting). Hace falta para que el límite de intentos de contraseña funcione bien. |
 | `DEV_LOGIN` | `0` | Con `1`, muestra "Entrar de prueba" (entrar con un nombre, sin Google). Solo para desarrollo: el servidor no arranca si está activo con `NODE_ENV=production`. |
 
 ### Configurar "Continuar con Google"
@@ -66,8 +67,9 @@ Sin volumen persistente, cada reinicio borra los perfiles, las fotos y las citas
 
 ## Servidor
 
-- **Identidad:** se entra con Google. La app recibe una credencial de Google, el servidor la verifica con `google-auth-library` y entrega un token de sesión propio (se guarda solo su hash). La cuenta de barbero y las citas quedan ligadas a la cuenta de Google, así que se recuperan desde cualquier teléfono. Una sesión sin uso en 180 días vence; "Cerrar sesión" la borra del servidor.
-- **Qué pide entrar:** ver barberos y perfiles no; apartar cita, ver mis citas y todo lo del barbero sí.
+- **Entrada:** sin sesión, lo primero que se ve es la pantalla de entrada (`src/screens/Entrar.tsx`): "Continuar con Google" o correo y contraseña ("Entrar" / "Crear cuenta").
+- **Correo y contraseña:** contraseñas de al menos 8 caracteres, guardadas con `scrypt` (`server/passwords.ts`); nunca se guarda la contraseña. Tras 8 intentos fallidos en 15 minutos para un mismo correo e IP, se bloquea un rato. Un correo es una sola cuenta: si alguien creó su cuenta con contraseña y luego entra con Google con ese mismo correo (verificado por Google), las dos formas quedan unidas.
+- **Identidad con Google:** La app recibe una credencial de Google, el servidor la verifica con `google-auth-library` y entrega un token de sesión propio (se guarda solo su hash). La cuenta de barbero y las citas quedan ligadas a la cuenta de Google, así que se recuperan desde cualquier teléfono. Una sesión sin uso en 180 días vence; "Cerrar sesión" la borra del servidor.
 - **Citas:** el servidor valida que el barbero atienda ese día, que la hora no haya pasado y que nadie la haya tomado (una hora solo se aparta una vez; cancelar la libera).
 - **Fotos:** solo se aceptan JPEG, PNG o WebP de hasta 6 MB, y cada quien solo puede usar las fotos que subió. Al reemplazar o quitar una foto, el servidor la borra.
 
@@ -83,7 +85,8 @@ En Cuenta se cambia entre usar Filo como cliente o como barbero.
 
 ## Pendiente
 
-- Más formas de entrar (teléfono, correo, Apple).
+- Recuperar contraseña ("¿Olvidaste tu contraseña?") y confirmar el correo: necesitan un servicio para enviar correos.
+- Más formas de entrar (teléfono, Apple).
 - Cobro de la suscripción y `[TÉRMINOS DE COBRO Y CANCELACIÓN]`.
 - Distancia real (ubicación del cliente y del barbero); hoy los perfiles nuevos muestran solo el barrio.
 - Límite de solicitudes por IP antes de abrirlo al público.

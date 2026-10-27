@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { transaction, type DB } from './db.js';
+import { burnTime, hashPassword, verifyPassword } from './passwords.js';
 
 /*
  * API de Filo.
@@ -11,7 +12,7 @@ import { transaction, type DB } from './db.js';
  * de Google y entrega un token de sesión propio, que la app manda como `Authorization: Bearer <token>`.
  */
 
-export type GoogleProfile = { sub: string; email?: string; name?: string; picture?: string };
+export type GoogleProfile = { sub: string; email?: string; emailVerified?: boolean; name?: string; picture?: string };
 
 export type AppOptions = {
   db: DB;
@@ -24,6 +25,8 @@ export type AppOptions = {
   googleClientId?: string;
   /* Solo desarrollo: permite entrar con un nombre, sin Google. */
   devLogin?: boolean;
+  /* Detrás de un proxy (Nginx, Cloudflare, el del hosting): usar la IP real del cliente para limitar intentos. */
+  trustProxy?: boolean;
   /* Verifica el token de Google; reemplazable en pruebas. */
   verifyGoogle?: (credential: string) => Promise<GoogleProfile>;
 };
@@ -76,7 +79,7 @@ function googleVerifier(clientId: string) {
     const ticket = await client.verifyIdToken({ idToken: credential, audience: clientId });
     const p = ticket.getPayload();
     if (!p?.sub) throw new Error('Token de Google sin usuario');
-    return { sub: p.sub, email: p.email, name: p.name, picture: p.picture };
+    return { sub: p.sub, email: p.email, emailVerified: p.email_verified, name: p.name, picture: p.picture };
   };
 }
 
@@ -110,6 +113,42 @@ function isValidDate(date: unknown): date is string {
 }
 
 /* --- Validación de entradas --- */
+
+function emailAddress(value: unknown): string {
+  const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || v.length > 254) throw new HttpError(400, 'Escribe un correo válido.');
+  return v;
+}
+
+const PASSWORD_MIN = 8;
+function newPassword(value: unknown): string {
+  if (typeof value !== 'string' || value.length < PASSWORD_MIN) {
+    throw new HttpError(400, `La contraseña debe tener al menos ${PASSWORD_MIN} caracteres.`);
+  }
+  if (value.length > 128) throw new HttpError(400, 'La contraseña es muy larga (máximo 128).');
+  return value;
+}
+
+/* Límite de intentos fallidos de contraseña por IP y correo. */
+function attemptLimiter(max: number, windowMs: number) {
+  const hits = new Map<string, { count: number; until: number }>();
+  return {
+    blocked(key: string) {
+      const h = hits.get(key);
+      if (h && h.until < Date.now()) hits.delete(key);
+      return (hits.get(key)?.count ?? 0) >= max;
+    },
+    fail(key: string) {
+      const h = hits.get(key);
+      if (!h || h.until < Date.now()) hits.set(key, { count: 1, until: Date.now() + windowMs });
+      else h.count++;
+      if (hits.size > 10_000) hits.clear();
+    },
+    reset(key: string) {
+      hits.delete(key);
+    },
+  };
+}
 
 function text(value: unknown, field: string, { max = 80, required = true } = {}): string {
   if (value == null && !required) return '';
@@ -197,6 +236,7 @@ export function createApp({
   staticDir,
   googleClientId,
   devLogin = false,
+  trustProxy = false,
   verifyGoogle = googleClientId ? googleVerifier(googleClientId) : undefined,
 }: AppOptions) {
   mkdirSync(uploadDir, { recursive: true });
@@ -208,6 +248,7 @@ export function createApp({
     deleteSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
     user: db.prepare('SELECT id, email, name, picture FROM users WHERE id = ?'),
     userByGoogle: db.prepare('SELECT id FROM users WHERE google_sub = ?'),
+    userByEmail: db.prepare('SELECT id, google_sub, password_hash FROM users WHERE email = ? COLLATE NOCASE'),
     barbers: db.prepare('SELECT * FROM barbers ORDER BY created_at'),
     barber: db.prepare('SELECT * FROM barbers WHERE id = ?'),
     barberByOwner: db.prepare('SELECT * FROM barbers WHERE owner_id = ?'),
@@ -253,6 +294,7 @@ export function createApp({
 
   const app = express();
   app.disable('x-powered-by');
+  if (trustProxy) app.set('trust proxy', 1);
   app.use('/api', express.json({ limit: '100kb' }));
 
   /* --- Autenticación --- */
@@ -281,26 +323,48 @@ export function createApp({
     return { id, email: u.email as string | null, name: u.name as string | null, picture: u.picture as string | null };
   };
 
-  /* Crea o actualiza la persona según su cuenta de Google y le abre una sesión. */
-  const signIn = (profile: GoogleProfile) => {
+  const openSession = (userId: string) => {
     const now = Date.now();
-    const userId = transaction(db, () => {
-      const existing = q.userByGoogle.get(profile.sub) as Row | undefined;
-      if (existing) {
-        db.prepare('UPDATE users SET email = ?, name = ?, picture = ? WHERE id = ?').run(
-          profile.email ?? null, profile.name ?? null, profile.picture ?? null, existing.id as string,
-        );
-        return existing.id as string;
-      }
-      const id = randomUUID();
-      db.prepare('INSERT INTO users (id, google_sub, email, name, picture, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
-        id, profile.sub, profile.email ?? null, profile.name ?? null, profile.picture ?? null, now,
-      );
-      return id;
-    });
     const token = randomBytes(32).toString('base64url');
     q.insertSession.run(hashToken(token), userId, now, now);
     return { token, user: toUser(userId) };
+  };
+
+  /*
+   * Crea o actualiza la persona según su cuenta de Google y le abre una sesión.
+   * Si ya existe una cuenta con contraseña y ese mismo correo, y Google confirma que el correo
+   * es suyo, se unen: desde ahí entra de las dos formas.
+   */
+  const signIn = (profile: GoogleProfile) => {
+    const email = profile.email?.toLowerCase() ?? null;
+    const userId = transaction(db, () => {
+      const existing = q.userByGoogle.get(profile.sub) as Row | undefined;
+      if (existing) {
+        const id = existing.id as string;
+        const taken = email ? (q.userByEmail.get(email) as Row | undefined) : undefined;
+        db.prepare('UPDATE users SET email = ?, name = ?, picture = ? WHERE id = ?').run(
+          taken && taken.id !== id ? (q.user.get(id) as Row).email as string | null : email,
+          profile.name ?? null, profile.picture ?? null, id,
+        );
+        return id;
+      }
+      const byEmail = email ? (q.userByEmail.get(email) as Row | undefined) : undefined;
+      if (byEmail) {
+        if (!profile.emailVerified || byEmail.google_sub) {
+          throw new HttpError(409, 'Ya hay una cuenta con ese correo. Entra con tu correo y contraseña.');
+        }
+        db.prepare('UPDATE users SET google_sub = ?, picture = COALESCE(picture, ?) WHERE id = ?').run(
+          profile.sub, profile.picture ?? null, byEmail.id as string,
+        );
+        return byEmail.id as string;
+      }
+      const id = randomUUID();
+      db.prepare('INSERT INTO users (id, google_sub, email, name, picture, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+        id, profile.sub, email, profile.name ?? null, profile.picture ?? null, Date.now(),
+      );
+      return id;
+    });
+    return openSession(userId);
   };
 
   const myBarberRow = (userId: string) => {
@@ -337,6 +401,66 @@ export function createApp({
       res.status(201).json(signIn({ sub: `dev:${slug}`, name, email: `${slug}@prueba.local` }));
     });
   }
+
+  /* --- Correo y contraseña --- */
+
+  const limiter = attemptLimiter(8, 15 * 60 * 1000);
+
+  app.post(
+    '/api/auth/register',
+    handle(async (req, res) => {
+      const name = text(req.body?.name, 'tu nombre', { max: 60 });
+      const email = emailAddress(req.body?.email);
+      const password = newPassword(req.body?.password);
+      const existing = q.userByEmail.get(email) as Row | undefined;
+      if (existing) {
+        throw new HttpError(
+          409,
+          existing.password_hash
+            ? 'Ya hay una cuenta con ese correo. Entra con tu contraseña.'
+            : 'Ese correo ya entra con Google. Usa “Continuar con Google”.',
+        );
+      }
+      const hash = await hashPassword(password);
+      const id = randomUUID();
+      try {
+        db.prepare('INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)').run(
+          id, email, name, hash, Date.now(),
+        );
+      } catch (err) {
+        if (String(err).includes('UNIQUE')) throw new HttpError(409, 'Ya hay una cuenta con ese correo. Entra con tu contraseña.');
+        throw err;
+      }
+      res.status(201).json(openSession(id));
+    }),
+  );
+
+  app.post(
+    '/api/auth/login',
+    handle(async (req, res) => {
+      const email = emailAddress(req.body?.email);
+      const password = typeof req.body?.password === 'string' ? req.body.password : '';
+      const key = `${req.ip}|${email}`;
+      if (limiter.blocked(key)) {
+        throw new HttpError(429, 'Demasiados intentos. Espera unos minutos y prueba otra vez.');
+      }
+      const user = q.userByEmail.get(email) as Row | undefined;
+      const ok = user?.password_hash
+        ? await verifyPassword(password, user.password_hash as string)
+        : (await burnTime(password), false);
+      if (!ok || !user) {
+        limiter.fail(key);
+        throw new HttpError(
+          401,
+          user && !user.password_hash
+            ? 'Ese correo entra con Google. Usa “Continuar con Google”.'
+            : 'Correo o contraseña incorrectos.',
+        );
+      }
+      limiter.reset(key);
+      res.status(201).json(openSession(user.id as string));
+    }),
+  );
 
   app.post('/api/auth/logout', (req, res) => {
     const token = bearer(req);
