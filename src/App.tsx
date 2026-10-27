@@ -9,6 +9,7 @@ import { EditarCorte } from './screens/EditarCorte';
 import { EditarPerfil } from './screens/EditarPerfil';
 import { Entrar } from './screens/Entrar';
 import { Explorar } from './screens/Explorar';
+import { Horario } from './screens/Horario';
 import { MiPerfil } from './screens/MiPerfil';
 import { NotFound } from './screens/NotFound';
 import { Perfil } from './screens/Perfil';
@@ -51,6 +52,7 @@ export function App() {
           <Route path="/soy-barbero" element={<Suscripcion />} />
           <Route path="/mi-perfil" element={<MiPerfil />} />
           <Route path="/mi-perfil/editar" element={<EditarPerfil />} />
+          <Route path="/mi-perfil/horario" element={<Horario />} />
           <Route path="/mi-perfil/corte/:serviceId" element={<EditarCorte />} />
           <Route path="/agenda" element={<Agenda />} />
           <Route path="*" element={<NotFound />} />

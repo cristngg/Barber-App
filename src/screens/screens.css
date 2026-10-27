@@ -506,3 +506,134 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+/* ---------- Horario real ---------- */
+/* Días para apartar: dos semanas que se deslizan de lado. */
+.day-row {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0 calc(-1 * var(--space-4));
+  padding: 0 var(--space-4);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.day-row::-webkit-scrollbar {
+  display: none;
+}
+
+.day-row .day {
+  flex: none;
+  width: 60px;
+}
+
+.option__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option__meta {
+  font: 400 13px/16px var(--font-body);
+  color: var(--color-muted);
+}
+
+.week-day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+}
+
+.week-day__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.week-day__name {
+  font: 600 16px/22px var(--font-body);
+}
+
+.week-day--closed .week-day__name {
+  color: var(--color-muted);
+}
+
+.week-day__hours,
+.day-off-add {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.time-select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.time-select select,
+.time-select input {
+  height: var(--touch);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-high);
+  border: 1px solid var(--color-control);
+  color: var(--color-text);
+  font: 500 15px/20px var(--font-body);
+  width: 100%;
+}
+
+.day-off-add .btn {
+  height: var(--touch);
+}
+
+.day-off-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.day-off {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-2) 0 var(--space-4);
+  min-height: 52px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  font: 500 15px/20px var(--font-body);
+}
+
+/* Horario en el perfil del barbero */
+.hours-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px var(--space-4);
+  font: 400 15px/22px var(--font-body);
+}
+
+.hours-list dt {
+  color: var(--color-muted);
+}
+
+.hours-list dd {
+  margin: 0;
+  text-align: right;
+}
+
+.hours-list .is-today {
+  color: var(--color-text);
+  font-weight: 600;
+}

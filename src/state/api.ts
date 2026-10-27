@@ -12,7 +12,9 @@ export type Appointment = {
   serviceName: string;
   /* ISO yyyy-mm-dd */
   date: string;
-  hour: number;
+  /* Hora de inicio en minutos desde la medianoche, y cuánto dura. */
+  startMin: number;
+  durationMin: number;
   status: 'pending' | 'confirmed' | 'cancelled';
   createdAt: number;
 };
@@ -22,7 +24,7 @@ export type User = { id: string; email: string | null; name: string | null; pict
 export type Config = { googleClientId: string | null; devLogin: boolean };
 
 export type BarberPatch = Partial<
-  Pick<Barber, 'name' | 'area' | 'bio' | 'tags' | 'workDays' | 'freeToday' | 'location'> & {
+  Pick<Barber, 'name' | 'area' | 'bio' | 'tags' | 'weekly' | 'daysOff' | 'location'> & {
     avatar: string | null;
     cover: string | null;
   }
@@ -31,7 +33,7 @@ export type BarberPatch = Partial<
 export type TravelMode = 'car' | 'foot';
 export type Route = { mode: TravelMode; distanceM: number; durationS: number; path: [number, number][] };
 
-export type ServiceInput = { name: string; price: number; photo?: string | null; style: string };
+export type ServiceInput = { name: string; price: number; photo?: string | null; style: string; durationMin: number };
 
 /* Un corte del muro de búsqueda, con lo justo de su barbero. */
 export type Cut = {
@@ -128,8 +130,12 @@ export const api = {
 
   barbers: () => request<Barber[]>('/api/barbers', {}, false),
   barber: (id: string) => request<Barber>(`/api/barbers/${encodeURIComponent(id)}`, {}, false),
-  availability: (id: string, date: string) =>
-    request<{ date: string; taken: number[] }>(`/api/barbers/${encodeURIComponent(id)}/availability?date=${date}`, {}, false),
+  availability: (id: string, date: string, serviceId: string) =>
+    request<{ date: string; duration: number; slots: number[] }>(
+      `/api/barbers/${encodeURIComponent(id)}/availability?date=${date}&serviceId=${encodeURIComponent(serviceId)}`,
+      {},
+      false,
+    ),
 
   me: () => request<{ user: User; barber: Barber | null }>('/api/me'),
   createBarber: (name: string, area: string) => request<Barber>('/api/me/barber', json('POST', { name, area })),
@@ -153,7 +159,7 @@ export const api = {
     request<{ url: string }>('/api/photos', { method: 'POST', headers: { 'content-type': blob.type }, body: blob }),
 
   appointments: () => request<Appointment[]>('/api/appointments'),
-  book: (a: { barberId: string; serviceId: string; date: string; hour: number }) =>
+  book: (a: { barberId: string; serviceId: string; date: string; start: number }) =>
     request<Appointment>('/api/appointments', json('POST', a)),
   cancel: (id: string) => request<Appointment>(`/api/appointments/${id}/cancel`, { method: 'POST' }),
   confirm: (id: string) => request<Appointment>(`/api/appointments/${id}/confirm`, { method: 'POST' }),

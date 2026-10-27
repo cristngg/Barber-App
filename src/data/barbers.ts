@@ -12,7 +12,12 @@ export type Service = {
   photo?: string;
   /* Tipo de corte (una de SPECIALTIES); null en cortes viejos sin tipo. */
   style: string | null;
+  /* Cuánto dura: define qué horas quedan libres al apartar. */
+  durationMin: number;
 };
+
+/* Horas de un día en minutos desde la medianoche (9:30 = 570); null = no atiende. */
+export type DayHours = { start: number; end: number } | null;
 
 export type Barber = {
   id: string;
@@ -31,6 +36,10 @@ export type Barber = {
   photoCount: number;
   /* Días que atiende: 0 = domingo … 6 = sábado */
   workDays: number[];
+  /* Horario por día de la semana, 0 = domingo … 6 = sábado. */
+  weekly: DayHours[];
+  /* Días libres (yyyy-mm-dd). */
+  daysOff: string[];
   /* Horas de atención en formato 24 h */
   hours: number[];
   services: Service[];

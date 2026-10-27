@@ -5,6 +5,18 @@ import express, { type NextFunction, type Request, type RequestHandler, type Res
 import { OAuth2Client } from 'google-auth-library';
 import { transaction, type DB } from './db.js';
 import { burnTime, hashPassword, verifyPassword } from './passwords.js';
+import {
+  freeSlots,
+  hoursOn,
+  isOpenNow,
+  isValidDate as isValidDay,
+  nowIn,
+  parseDaysOff,
+  parseDuration,
+  parseWeekly,
+  ScheduleError,
+  type Weekly,
+} from './schedule.js';
 import { matches, STYLE_ORDER, STYLES } from './search.js';
 import { createTrending } from './trending.js';
 
@@ -84,35 +96,6 @@ function googleVerifier(clientId: string) {
   };
 }
 
-/* "Hoy" y la hora actual en la zona del negocio. */
-function nowIn(timeZone: string) {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      hourCycle: 'h23',
-    })
-      .formatToParts(new Date())
-      .map((p) => [p.type, p.value]),
-  );
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) };
-}
-
-function weekday(date: string) {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-}
-
-function isValidDate(date: unknown): date is string {
-  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-  const [y, m, d] = date.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
-}
-
 /* --- Validación de entradas --- */
 
 function emailAddress(value: unknown): string {
@@ -167,13 +150,6 @@ function price(value: unknown): number {
   return Math.round(value * 100);
 }
 
-function dayList(value: unknown): number[] {
-  if (!Array.isArray(value) || !value.length || value.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
-    throw new HttpError(400, 'Marca al menos un día.');
-  }
-  return [...new Set(value as number[])].sort();
-}
-
 /* {lat, lng} con ~1 m de precisión, o null para quitar la ubicación. */
 function coordinates(value: unknown): { lat: number; lng: number } | null {
   if (value == null) return null;
@@ -201,8 +177,17 @@ function toService(row: Row) {
     price: row.price_cents == null ? null : (row.price_cents as number) / 100,
     photo: (row.photo as string | null) ?? undefined,
     style: (row.style as string | null) ?? null,
+    durationMin: (row.duration_min as number | null) ?? 30,
   };
 }
+
+const isValidDate = (date: unknown): date is string => typeof date === 'string' && isValidDay(date);
+
+/* Martes a sábado, de 9:00 a 5:00, para quien recién crea su cuenta. */
+const DEFAULT_WEEKLY: Weekly = [null, null, ...Array.from({ length: 5 }, () => ({ start: 9 * 60, end: 17 * 60 }))];
+
+/* Lo que cambia con la hora: si está abierto ahora y si le queda algún hueco hoy. */
+type Live = { openNow: boolean; freeToday: boolean };
 
 /* El tipo de corte: uno de STYLES. */
 function cutStyle(value: unknown): string {
@@ -210,9 +195,10 @@ function cutStyle(value: unknown): string {
   return value;
 }
 
-function toBarber(row: Row, services: Row[]) {
+function toBarber(row: Row, services: Row[], live: Live) {
   const tags = JSON.parse(row.tags as string) as string[];
   const mapped = services.map(toService);
+  const weekly = JSON.parse(row.weekly as string) as Weekly;
   return {
     id: row.id as string,
     name: row.name as string,
@@ -221,10 +207,12 @@ function toBarber(row: Row, services: Row[]) {
     tags,
     specialties: tags.map((t) => SPECIALTIES[t]),
     rating: row.rating as number | null,
-    freeToday: !!row.free_today,
-    openNow: !!row.open_now,
-    workDays: JSON.parse(row.work_days as string) as number[],
-    hours: JSON.parse(row.hours as string) as number[],
+    freeToday: live.freeToday,
+    openNow: live.openNow,
+    weekly,
+    daysOff: JSON.parse(row.days_off as string) as string[],
+    /* Los días de la semana que atiende (atajo de `weekly`). */
+    workDays: weekly.flatMap((d, i) => (d ? [i] : [])),
     avatar: (row.avatar as string | null) ?? undefined,
     cover: (row.cover as string | null) ?? undefined,
     photoCount: mapped.filter((s) => s.photo).length,
@@ -241,7 +229,8 @@ function toAppointment(row: Row) {
     serviceId: row.service_id as string,
     serviceName: row.service_name as string,
     date: row.date as string,
-    hour: row.hour as number,
+    startMin: row.start_min as number,
+    durationMin: row.duration_min as number,
     status: row.status as 'pending' | 'confirmed' | 'cancelled',
     createdAt: row.created_at as number,
   };
@@ -277,18 +266,58 @@ export function createApp({
     allServices: db.prepare('SELECT * FROM services ORDER BY barber_id, position'),
     service: db.prepare('SELECT * FROM services WHERE id = ? AND barber_id = ?'),
     photoOwner: db.prepare('SELECT owner_id FROM photos WHERE name = ?'),
-    takenHours: db.prepare(`SELECT hour FROM appointments WHERE barber_id = ? AND date = ? AND status != 'cancelled'`),
+    busyOn: db.prepare(
+      `SELECT start_min AS start, start_min + duration_min AS "end" FROM appointments WHERE barber_id = ? AND date = ? AND status != 'cancelled'`,
+    ),
+    busyAll: db.prepare(
+      `SELECT barber_id, start_min AS start, start_min + duration_min AS "end" FROM appointments WHERE date = ? AND status != 'cancelled'`,
+    ),
     appointment: db.prepare('SELECT a.*, b.name AS barber_name, b.owner_id FROM appointments a JOIN barbers b ON b.id = a.barber_id WHERE a.id = ?'),
     clientAppointments: db.prepare(
-      'SELECT a.*, b.name AS barber_name FROM appointments a JOIN barbers b ON b.id = a.barber_id WHERE a.client_id = ? ORDER BY a.date, a.hour',
+      'SELECT a.*, b.name AS barber_name FROM appointments a JOIN barbers b ON b.id = a.barber_id WHERE a.client_id = ? ORDER BY a.date, a.start_min',
     ),
     barberAppointments: db.prepare(
       `SELECT a.*, b.name AS barber_name FROM appointments a JOIN barbers b ON b.id = a.barber_id
-       WHERE a.barber_id = ? AND a.date >= ? ORDER BY a.date, a.hour`,
+       WHERE a.barber_id = ? AND a.date >= ? ORDER BY a.date, a.start_min`,
     ),
   };
 
-  const loadBarber = (row: Row | undefined) => (row ? toBarber(row, q.servicesOf.all(row.id as string)) : null);
+  /* Abierto ahora y hueco libre hoy (para el corte más corto que ofrece). */
+  const liveStatus = (row: Row, services: Row[], busyToday: { start: number; end: number }[]): Live => {
+    const now = nowIn(timeZone);
+    const weekly = JSON.parse(row.weekly as string) as Weekly;
+    const daysOff = JSON.parse(row.days_off as string) as string[];
+    const shortest = Math.min(30, ...services.map((s) => (s.duration_min as number | null) ?? 30));
+    return {
+      openNow: isOpenNow(weekly, daysOff, now),
+      freeToday: freeSlots({ weekly, daysOff, date: now.date, duration: shortest, busy: busyToday, now }).length > 0,
+    };
+  };
+
+  const loadBarber = (row: Row | undefined) => {
+    if (!row) return null;
+    const services = q.servicesOf.all(row.id as string) as Row[];
+    const busy = q.busyOn.all(row.id as string, nowIn(timeZone).date) as { start: number; end: number }[];
+    return toBarber(row, services, liveStatus(row, services, busy));
+  };
+
+  /* Todos los barberos de una vez (para listas): una consulta de servicios y una de citas de hoy. */
+  const loadAllBarbers = () => {
+    const byBarber = new Map<string, Row[]>();
+    for (const s of q.allServices.all() as Row[]) {
+      const list = byBarber.get(s.barber_id as string) ?? [];
+      list.push(s);
+      byBarber.set(s.barber_id as string, list);
+    }
+    const busy = new Map<string, { start: number; end: number }[]>();
+    for (const b of q.busyAll.all(nowIn(timeZone).date) as { barber_id: string; start: number; end: number }[]) {
+      busy.set(b.barber_id, [...(busy.get(b.barber_id) ?? []), b]);
+    }
+    return (q.barbers.all() as Row[]).map((b) => {
+      const services = byBarber.get(b.id as string) ?? [];
+      return toBarber(b, services, liveStatus(b, services, busy.get(b.id as string) ?? []));
+    });
+  };
 
   /* Borra del disco una foto subida que ya no se usa. */
   const dropPhoto = (url: unknown) => {
@@ -492,14 +521,7 @@ export function createApp({
   /* --- Público: barberos y disponibilidad --- */
 
   app.get('/api/barbers', (_req, res) => {
-    const services = q.allServices.all() as Row[];
-    const byBarber = new Map<string, Row[]>();
-    for (const s of services) {
-      const list = byBarber.get(s.barber_id as string) ?? [];
-      list.push(s);
-      byBarber.set(s.barber_id as string, list);
-    }
-    res.json((q.barbers.all() as Row[]).map((b) => toBarber(b, byBarber.get(b.id as string) ?? [])));
+    res.json(loadAllBarbers());
   });
 
   app.get('/api/barbers/:id', (req, res) => {
@@ -563,16 +585,25 @@ export function createApp({
     }),
   );
 
+  /* Horas libres para un corte (su duración manda) en un día. */
+  const slotsFor = (barber: Row, date: string, duration: number) =>
+    freeSlots({
+      weekly: JSON.parse(barber.weekly as string),
+      daysOff: JSON.parse(barber.days_off as string),
+      date,
+      duration,
+      busy: q.busyOn.all(barber.id as string, date) as { start: number; end: number }[],
+      now: nowIn(timeZone),
+    });
+
   app.get('/api/barbers/:id/availability', (req, res) => {
     const row = q.barber.get(req.params.id) as Row | undefined;
     if (!row) throw new HttpError(404, 'Ese barbero ya no existe.');
     const date = req.query.date;
     if (!isValidDate(date)) throw new HttpError(400, 'Fecha no válida.');
-    const taken = (q.takenHours.all(row.id as string, date) as Row[]).map((r) => r.hour as number);
-    const now = nowIn(timeZone);
-    const hours = JSON.parse(row.hours as string) as number[];
-    const past = date < now.date ? hours : date === now.date ? hours.filter((h) => h <= now.hour) : [];
-    res.json({ date, taken: [...new Set([...taken, ...past])].sort((a, b) => a - b) });
+    const service = req.query.serviceId ? (q.service.get(String(req.query.serviceId), row.id as string) as Row | undefined) : undefined;
+    const duration = (service?.duration_min as number | undefined) ?? 30;
+    res.json({ date, duration, slots: slotsFor(row, date, duration) });
   });
 
   /* --- Mi cuenta --- */
@@ -589,8 +620,8 @@ export function createApp({
     const now = Date.now();
     // TODO: cobrar la suscripción ($3.99/mes) antes de crear la cuenta.
     db.prepare(
-      `INSERT INTO barbers (id, owner_id, name, area, map_x, map_y, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?, ?)`,
-    ).run(id, req.userId!, name, area, now, now);
+      `INSERT INTO barbers (id, owner_id, name, area, weekly, map_x, map_y, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+    ).run(id, req.userId!, name, area, JSON.stringify(DEFAULT_WEEKLY), now, now);
     res.status(201).json(loadBarber(q.barber.get(id) as Row));
   });
 
@@ -609,8 +640,8 @@ export function createApp({
     if ('area' in body) set('area', text(body.area, 'el barrio donde atiendes'));
     if ('bio' in body) set('bio', text(body.bio, 'la descripción', { max: 240, required: false }));
     if ('tags' in body) set('tags', JSON.stringify(tagList(body.tags)));
-    if ('workDays' in body) set('work_days', JSON.stringify(dayList(body.workDays)));
-    if ('freeToday' in body) set('free_today', body.freeToday ? 1 : 0);
+    if ('weekly' in body) set('weekly', JSON.stringify(parseWeekly(body.weekly)));
+    if ('daysOff' in body) set('days_off', JSON.stringify(parseDaysOff(body.daysOff, nowIn(timeZone).date)));
     if ('location' in body) {
       const at = coordinates(body.location);
       set('lat', at?.lat ?? null);
@@ -639,10 +670,11 @@ export function createApp({
     const cents = price(req.body?.price);
     const photo = ownPhoto(req.body?.photo, req.userId!);
     const style = cutStyle(req.body?.style);
+    const duration = parseDuration(req.body?.durationMin);
     const pos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS p FROM services WHERE barber_id = ?').get(row.id as string) as Row;
-    db.prepare('INSERT INTO services (id, barber_id, name, price_cents, photo, style, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-      randomUUID(), row.id as string, name, cents, photo, style, pos.p as number, Date.now(),
-    );
+    db.prepare(
+      'INSERT INTO services (id, barber_id, name, price_cents, photo, style, duration_min, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(randomUUID(), row.id as string, name, cents, photo, style, duration, pos.p as number, Date.now());
     res.status(201).json(loadBarber(q.barber.get(row.id as string) as Row));
   });
 
@@ -654,8 +686,9 @@ export function createApp({
     const cents = price(req.body?.price);
     const photo = ownPhoto(req.body?.photo, req.userId!);
     const style = cutStyle(req.body?.style);
-    db.prepare('UPDATE services SET name = ?, price_cents = ?, photo = ?, style = ? WHERE id = ?').run(
-      name, cents, photo, style, service.id as string,
+    const duration = parseDuration(req.body?.durationMin);
+    db.prepare('UPDATE services SET name = ?, price_cents = ?, photo = ?, style = ?, duration_min = ? WHERE id = ?').run(
+      name, cents, photo, style, duration, service.id as string,
     );
     if (photo !== service.photo) dropPhoto(service.photo);
     res.json(loadBarber(q.barber.get(row.id as string) as Row));
@@ -689,6 +722,7 @@ export function createApp({
     const near = Number.isFinite(nearLat) && Number.isFinite(nearLng) ? { lat: nearLat, lng: nearLng } : null;
 
     const rows = allCuts.all() as Row[];
+    const freeToday = new Map(loadAllBarbers().map((b) => [b.id, b.freeToday]));
 
     const km = (r: Row) => {
       if (!near || r.lat == null) return Infinity;
@@ -729,7 +763,7 @@ export function createApp({
         name: r.barber_name as string,
         area: r.area as string,
         rating: r.rating as number | null,
-        freeToday: !!r.free_today,
+        freeToday: freeToday.get(r.barber_id as string) ?? false,
         avatar: (r.avatar as string | null) ?? undefined,
       },
     }));
@@ -796,32 +830,33 @@ export function createApp({
   });
 
   app.post('/api/appointments', auth, (req: AuthedRequest, res) => {
-    const { barberId, serviceId, date, hour } = req.body ?? {};
+    const { barberId, serviceId, date, start } = req.body ?? {};
     const barber = q.barber.get(String(barberId)) as Row | undefined;
     if (!barber) throw new HttpError(404, 'Ese barbero ya no existe.');
     const service = q.service.get(String(serviceId), barber.id as string) as Row | undefined;
     if (!service) throw new HttpError(400, 'Elige un servicio.');
     if (!isValidDate(date)) throw new HttpError(400, 'Elige un día.');
-    const hours = JSON.parse(barber.hours as string) as number[];
-    if (!Number.isInteger(hour) || !hours.includes(hour)) throw new HttpError(400, 'Elige una hora.');
-    if (!(JSON.parse(barber.work_days as string) as number[]).includes(weekday(date))) {
-      throw new HttpError(400, 'Ese día el barbero no atiende.');
-    }
+    if (!Number.isInteger(start)) throw new HttpError(400, 'Elige una hora.');
+    const duration = (service.duration_min as number | null) ?? 30;
+    const day = hoursOn(JSON.parse(barber.weekly as string), JSON.parse(barber.days_off as string), date);
+    if (!day) throw new HttpError(400, 'Ese día el barbero no atiende.');
+    if (start < day.start || start + duration > day.end) throw new HttpError(400, 'Esa hora está fuera de su horario.');
     const now = nowIn(timeZone);
-    if (date < now.date || (date === now.date && hour <= now.hour)) {
+    if (date < now.date || (date === now.date && start <= now.minutes)) {
       throw new HttpError(400, 'Esa hora ya pasó. Prueba con otra.');
     }
 
+    /* Revisar y guardar juntos: nadie puede tomar la misma hora en medio. */
     const id = randomUUID();
-    try {
+    transaction(db, () => {
+      if (!slotsFor(barber, date, duration).includes(start)) {
+        throw new HttpError(409, 'Esa hora ya la tomaron. Prueba con otra.');
+      }
       db.prepare(
-        `INSERT INTO appointments (id, barber_id, service_id, service_name, client_id, date, hour, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-      ).run(id, barber.id as string, service.id as string, service.name as string, req.userId!, date, hour, Date.now());
-    } catch (err) {
-      if (String(err).includes('UNIQUE')) throw new HttpError(409, 'Esa hora ya la tomaron. Prueba con otra.');
-      throw err;
-    }
+        `INSERT INTO appointments (id, barber_id, service_id, service_name, client_id, date, hour, start_min, duration_min, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      ).run(id, barber.id as string, service.id as string, service.name as string, req.userId!, date, Math.floor(start / 60), start, duration, Date.now());
+    });
     res.status(201).json(toAppointment(q.appointment.get(id) as Row));
   });
 
@@ -858,6 +893,7 @@ export function createApp({
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof ScheduleError) return res.status(400).json({ error: err.message });
     const status = (err as { status?: number }).status;
     if (status === 413) return res.status(413).json({ error: 'La foto es muy pesada.' });
     if (status === 400) return res.status(400).json({ error: 'Datos no válidos.' });

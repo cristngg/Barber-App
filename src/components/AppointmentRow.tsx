@@ -1,16 +1,17 @@
 import type { ReactNode } from 'react';
-import { formatHour, weekdayShort } from '../data/dates';
+import { formatTimeRange, weekdayShort } from '../data/dates';
 
 type Props = {
   date: Date;
-  hour: number;
+  startMin: number;
+  durationMin: number;
   service: string;
   /* Segunda línea: "con Carlos M." para el cliente, otra cosa para el barbero. */
   detail: string;
   aside?: ReactNode;
 };
 
-export function AppointmentRow({ date, hour, service, detail, aside }: Props) {
+export function AppointmentRow({ date, startMin, durationMin, service, detail, aside }: Props) {
   return (
     <div className="appt-row">
       <div className="appt-row__date">
@@ -19,7 +20,7 @@ export function AppointmentRow({ date, hour, service, detail, aside }: Props) {
       </div>
       <div className="appt-row__body">
         <span className="appt-row__title">
-          {service} · {formatHour(hour, true)}
+          {service} · {formatTimeRange(startMin, durationMin)}
         </span>
         <span className="t-detail">{detail}</span>
       </div>

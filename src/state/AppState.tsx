@@ -41,7 +41,7 @@ type AppState = {
   /* Las citas que apartó este teléfono como cliente. */
   appointments: Appointment[];
   refreshAppointments: () => Promise<void>;
-  book: (a: { barberId: string; serviceId: string; date: string; hour: number }) => Promise<Appointment>;
+  book: (a: { barberId: string; serviceId: string; date: string; start: number }) => Promise<Appointment>;
   cancel: (id: string) => Promise<void>;
 };
 

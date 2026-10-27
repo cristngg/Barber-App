@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { parsePrice, SPECIALTIES } from '../data/barbers';
+import { formatDurationMin } from '../data/dates';
 import { Button } from '../components/Button';
 import { Chip } from '../components/Chip';
 import { TextField } from '../components/Field';
@@ -12,6 +13,9 @@ import { useAppState } from '../state/AppState';
 import './screens.css';
 
 type Errors = Partial<Record<'name' | 'price' | 'style', string>>;
+
+/* Lo que acepta el servidor (ver server/schedule.ts). */
+const DURATIONS = [15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
 
 /* Un corte del portafolio: foto, tipo, nombre y precio. También es el servicio que el cliente aparta y lo que sale en "Cortes". */
 export function EditarCorte() {
@@ -25,6 +29,7 @@ export function EditarCorte() {
   const [name, setName] = useState(existing?.name ?? '');
   const [price, setPrice] = useState(existing?.price != null ? existing.price.toFixed(2) : '');
   const [style, setStyle] = useState<string | null>(existing?.style ?? null);
+  const [duration, setDuration] = useState(existing?.durationMin ?? 30);
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string>();
@@ -55,7 +60,7 @@ export function EditarCorte() {
     };
     setErrors(next);
     if (next.name || next.price || next.style || parsed == null || !style || saving) return;
-    run(() => saveService(existing?.id ?? null, { name: name.trim(), price: parsed, photo: photo ?? null, style }));
+    run(() => saveService(existing?.id ?? null, { name: name.trim(), price: parsed, photo: photo ?? null, style, durationMin: duration }));
   };
 
   const remove = () => {
@@ -108,6 +113,17 @@ export function EditarCorte() {
               {errors.style}
             </span>
           )}
+        </fieldset>
+        <fieldset className="step">
+          <legend className="field__label">Cuánto dura</legend>
+          <div className="chip-wrap" role="group" aria-label="Cuánto dura">
+            {DURATIONS.map((m) => (
+              <Chip key={m} selected={duration === m} onToggle={() => setDuration(m)}>
+                {formatDurationMin(m)}
+              </Chip>
+            ))}
+          </div>
+          <span className="t-detail">Con esto la app sabe qué horas te quedan libres después de cada cita.</span>
         </fieldset>
         <TextField
           label="Nombre del corte"

@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { DEFAULT_DURATION, weeklyFromLegacy } from './schedule.js';
 
 /*
  * Base de datos SQLite (incluida en Node 22). Un archivo en disco, sin servicio aparte.
@@ -42,6 +43,10 @@ CREATE TABLE IF NOT EXISTS barbers (
   open_now INTEGER NOT NULL DEFAULT 1,
   work_days TEXT NOT NULL DEFAULT '[2,3,4,5,6]',
   hours TEXT NOT NULL DEFAULT '[9,10,11,12,13,14,15,16]',
+  -- Horario real (ver schedule.ts): [domingo … sábado], cada día {start, end} en minutos o null.
+  -- work_days y hours quedan solo por las bases viejas.
+  weekly TEXT,
+  days_off TEXT NOT NULL DEFAULT '[]',
   avatar TEXT,
   cover TEXT,
   -- Dónde atiende (WGS84). NULL = todavía no marca su ubicación.
@@ -61,6 +66,7 @@ CREATE TABLE IF NOT EXISTS services (
   photo TEXT,
   -- Tipo de corte (ver STYLES en search.ts), para buscar por estilo.
   style TEXT,
+  duration_min INTEGER,
   position INTEGER NOT NULL,
   created_at INTEGER
 );
@@ -94,14 +100,15 @@ CREATE TABLE IF NOT EXISTS appointments (
   client_id TEXT NOT NULL REFERENCES users(id),
   date TEXT NOT NULL,
   hour INTEGER NOT NULL,
+  start_min INTEGER,
+  duration_min INTEGER,
   status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'cancelled')),
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS appointments_client ON appointments(client_id);
 CREATE INDEX IF NOT EXISTS appointments_barber ON appointments(barber_id, date);
--- Una hora de un barbero solo se puede apartar una vez (las canceladas liberan la hora).
-CREATE UNIQUE INDEX IF NOT EXISTS appointments_slot
-  ON appointments(barber_id, date, hour) WHERE status != 'cancelled';
+-- Que dos citas no se crucen lo revisa el servidor al apartar (las citas ahora duran lo que dure el corte).
+
 `;
 
 export function openDb(file: string): DB {
@@ -113,8 +120,29 @@ export function openDb(file: string): DB {
   addColumn(db, 'barbers', 'lng', 'REAL');
   addColumn(db, 'services', 'style', 'TEXT');
   addColumn(db, 'services', 'created_at', 'INTEGER');
+  /* Horario real: horas por día, días libres, duración de cada corte y de cada cita. */
+  addColumn(db, 'barbers', 'weekly', 'TEXT');
+  addColumn(db, 'barbers', 'days_off', "TEXT NOT NULL DEFAULT '[]'");
+  addColumn(db, 'services', 'duration_min', 'INTEGER');
+  addColumn(db, 'appointments', 'start_min', 'INTEGER');
+  addColumn(db, 'appointments', 'duration_min', 'INTEGER');
   db.exec(SCHEMA);
+  migrateSchedule(db);
   return db;
+}
+
+/* Bases anteriores al horario real: el horario sale de los días y horas de antes; las citas duraban 1 hora. */
+function migrateSchedule(db: DB) {
+  db.exec('DROP INDEX IF EXISTS appointments_slot');
+  const old = db.prepare('SELECT id, work_days, hours FROM barbers WHERE weekly IS NULL').all() as {
+    id: string;
+    work_days: string;
+    hours: string;
+  }[];
+  const set = db.prepare('UPDATE barbers SET weekly = ? WHERE id = ?');
+  for (const b of old) set.run(JSON.stringify(weeklyFromLegacy(JSON.parse(b.work_days), JSON.parse(b.hours))), b.id);
+  db.exec(`UPDATE appointments SET start_min = hour * 60, duration_min = 60 WHERE start_min IS NULL;
+           UPDATE services SET duration_min = ${DEFAULT_DURATION} WHERE duration_min IS NULL;`);
 }
 
 /* Agrega una columna nueva a una tabla que ya existía en una base anterior. */
@@ -208,17 +236,20 @@ export function seedDemo(db: DB) {
 
   const now = Date.now();
   const insBarber = db.prepare(`INSERT INTO barbers
-    (id, name, area, bio, tags, rating, free_today, open_now, work_days, lat, lng, map_x, map_y, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`);
+    (id, name, area, bio, tags, rating, free_today, open_now, work_days, weekly, lat, lng, map_x, map_y, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`);
   const insService = db.prepare(
-    'INSERT INTO services (id, barber_id, name, price_cents, style, position, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?)',
+    'INSERT INTO services (id, barber_id, name, price_cents, style, duration_min, position, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)',
   );
+  const nineToFive = [9, 10, 11, 12, 13, 14, 15, 16];
 
   transaction(db, () => {
     for (const b of DEMO) {
       insBarber.run(b.id, b.name, b.area, b.bio, JSON.stringify(b.tags), b.rating, b.free, b.open,
-        JSON.stringify(b.days), b.at[0], b.at[1], now, now);
-      b.services.forEach(([name, style], i) => insService.run(`${b.id}-${i}`, b.id, name, style, i, now));
+        JSON.stringify(b.days), JSON.stringify(weeklyFromLegacy(b.days, nineToFive)), b.at[0], b.at[1], now, now);
+      b.services.forEach(([name, style], i) =>
+        insService.run(`${b.id}-${i}`, b.id, name, style, style === 'disenos' ? 45 : DEFAULT_DURATION, i, now),
+      );
     }
   });
 }

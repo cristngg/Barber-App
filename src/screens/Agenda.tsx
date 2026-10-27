@@ -72,7 +72,8 @@ export function Agenda() {
             <div key={a.id} className="stack-10">
               <AppointmentRow
                 date={fromISODate(a.date)}
-                hour={a.hour}
+                startMin={a.startMin}
+                durationMin={a.durationMin}
                 service={a.serviceName}
                 detail="Apartada desde la app"
                 aside={<StatusTag status={a.status} compact />}

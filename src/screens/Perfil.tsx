@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { formatDistance, formatPrice } from '../data/barbers';
+import { formatDurationMin, formatTimeRange, WEEKDAYS_LONG } from '../data/dates';
 import { BarberMap } from '../components/Map';
 import { ButtonLink } from '../components/Button';
 import { Icon } from '../components/Icon';
@@ -56,6 +57,22 @@ export function Perfil() {
           {barber.bio && <p className="t-body">{barber.bio}</p>}
         </div>
 
+        <section className="stack-12">
+          <SectionHeader title="Horario" aside={barber.openNow ? 'Abierto ahora' : 'Cerrado ahora'} />
+          <dl className="hours-list">
+            {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+              const h = barber.weekly[d];
+              const today = d === new Date().getDay() ? ' is-today' : '';
+              return (
+                <div key={d} style={{ display: 'contents' }}>
+                  <dt className={today}>{WEEKDAYS_LONG[d].charAt(0).toUpperCase() + WEEKDAYS_LONG[d].slice(1)}</dt>
+                  <dd className={today}>{h ? formatTimeRange(h.start, h.end - h.start) : 'Cerrado'}</dd>
+                </div>
+              );
+            })}
+          </dl>
+        </section>
+
         {barber.location && (
           <section className="stack-12">
             <SectionHeader title="Dónde atiende" aside={barber.area} />
@@ -80,6 +97,7 @@ export function Perfil() {
                 <Photo src={s.photo} alt={s.name} label="" className="portfolio__photo" />
                 <span className="portfolio__name">{s.name}</span>
                 <span className="portfolio__price">{formatPrice(s.price)}</span>
+                <span className="t-detail">{formatDurationMin(s.durationMin)}</span>
               </li>
             ))}
           </ul>

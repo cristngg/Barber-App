@@ -64,8 +64,9 @@ const signIn = async (sub: string) => (await api('/api/auth/google', { method: '
 const session = async () => (await signIn(`p${++people}`)).token as string;
 
 /* Próxima fecha (a partir de mañana) que cae en uno de `days`. */
-function nextDate(days: number[]) {
+function nextDate(days: number[], from = 1) {
   const d = new Date();
+  d.setDate(d.getDate() + from - 1);
   for (let i = 1; i < 14; i++) {
     d.setDate(d.getDate() + 1);
     if (days.includes(d.getDay())) {
@@ -209,11 +210,10 @@ describe('Filo API', () => {
     const patched = await api('/api/me/barber', {
       token,
       method: 'PATCH',
-      body: { bio: 'Fade y barba.', tags: ['barba', 'fade'], workDays: [6, 2], cover: photo.json.url },
+      body: { bio: 'Fade y barba.', tags: ['barba', 'fade'], cover: photo.json.url },
     });
     assert.equal(patched.status, 200);
     assert.deepEqual(patched.json.specialties, ['Fade', 'Barba']);
-    assert.deepEqual(patched.json.workDays, [2, 6]);
     assert.equal(patched.json.cover, photo.json.url);
 
     const badPrice = await api('/api/me/barber/services', { token, method: 'POST', body: { name: 'Fade', price: -3, style: 'fade' } });
@@ -371,17 +371,17 @@ describe('Filo API', () => {
     const date = nextDate(barber.workDays);
 
     const client = await session();
-    const booked = await api('/api/appointments', { token: client, method: 'POST', body: { barberId: barber.id, serviceId, date, hour: 15 } });
+    const booked = await api('/api/appointments', { token: client, method: 'POST', body: { barberId: barber.id, serviceId, date, start: 15 * 60 } });
     assert.equal(booked.status, 201);
     assert.equal(booked.json.status, 'pending');
 
     const other = await session();
-    const clash = await api('/api/appointments', { token: other, method: 'POST', body: { barberId: barber.id, serviceId, date, hour: 15 } });
+    const clash = await api('/api/appointments', { token: other, method: 'POST', body: { barberId: barber.id, serviceId, date, start: 15 * 60 } });
     assert.equal(clash.status, 409);
     assert.equal(clash.json.error, 'Esa hora ya la tomaron. Prueba con otra.');
 
     const avail = await api(`/api/barbers/${barber.id}/availability?date=${date}`);
-    assert.ok(avail.json.taken.includes(15));
+    assert.ok(!avail.json.slots.includes(15 * 60), 'las 3:00 ya no salen libres');
 
     assert.equal((await api(`/api/appointments/${booked.json.id}/confirm`, { token: client, method: 'POST' })).status, 403);
     const confirmed = await api(`/api/appointments/${booked.json.id}/confirm`, { token: barberToken, method: 'POST' });
@@ -393,8 +393,56 @@ describe('Filo API', () => {
     const cancelled = await api(`/api/appointments/${booked.json.id}/cancel`, { token: client, method: 'POST' });
     assert.equal(cancelled.json.status, 'cancelled');
 
-    const again = await api('/api/appointments', { token: other, method: 'POST', body: { barberId: barber.id, serviceId, date, hour: 15 } });
+    const again = await api('/api/appointments', { token: other, method: 'POST', body: { barberId: barber.id, serviceId, date, start: 15 * 60 } });
     assert.equal(again.status, 201, 'cancelar libera la hora');
+  });
+
+  it('horario real: horas por día, días libres y cortes que duran distinto', async () => {
+    const token = await session();
+    const barber = (await api('/api/me/barber', { token, method: 'POST', body: { name: 'Con Horario', area: 'Obarrio' } })).json;
+    assert.deepEqual(barber.workDays, [2, 3, 4, 5, 6], 'de martes a sábado al crear la cuenta');
+
+    const bad = await api('/api/me/barber', { token, method: 'PATCH', body: { weekly: [null, null, null, null, null, null, null] } });
+    assert.equal(bad.json.error, 'Abre al menos un día.');
+    const backwards = await api('/api/me/barber', { token, method: 'PATCH', body: { weekly: [null, { start: 600, end: 540 }, null, null, null, null, null] } });
+    assert.equal(backwards.status, 400);
+
+    // Solo lunes, de 9:00 a 11:00
+    const weekly = [null, { start: 540, end: 660 }, null, null, null, null, null];
+    const monday = nextDate([1]);
+    const nextMonday = nextDate([1], 8);
+    const set = await api('/api/me/barber', { token, method: 'PATCH', body: { weekly, daysOff: [nextMonday, '2000-01-01'] } });
+    assert.deepEqual(set.json.weekly, weekly);
+    assert.deepEqual(set.json.daysOff, [nextMonday], 'los días pasados se descartan');
+
+    const add = async (name: string, durationMin?: number) =>
+      (await api('/api/me/barber/services', { token, method: 'POST', body: { name, price: 10, style: 'fade', durationMin } })).json;
+    assert.equal((await api('/api/me/barber/services', { token, method: 'POST', body: { name: 'Raro', price: 10, style: 'fade', durationMin: 7 } })).status, 400);
+    await add('Fade');
+    const withBraids = await add('Trenzas', 90);
+    const fade = withBraids.services[0];
+    const braids = withBraids.services[1];
+    assert.equal(fade.durationMin, 30, '30 min si no dice');
+    assert.equal(braids.durationMin, 90);
+
+    const slots = async (serviceId: string, date = monday) =>
+      (await api(`/api/barbers/${barber.id}/availability?date=${date}&serviceId=${serviceId}`)).json.slots;
+    assert.deepEqual(await slots(fade.id), [540, 570, 600, 630], 'fade: 9:00 a 10:30');
+    assert.deepEqual(await slots(braids.id), [540, 570], 'trenzas de 1 h 30: hasta las 9:30');
+    assert.deepEqual(await slots(fade.id, nextMonday), [], 'día libre');
+
+    const client = await session();
+    const book = (serviceId: string, start: number, date = monday) =>
+      api('/api/appointments', { token: client, method: 'POST', body: { barberId: barber.id, serviceId, date, start } });
+    const first = await book(braids.id, 540);
+    assert.equal(first.status, 201);
+    assert.equal(first.json.durationMin, 90);
+    assert.deepEqual(await slots(fade.id), [630], 'las trenzas ocupan de 9:00 a 10:30');
+    assert.equal((await book(fade.id, 600)).status, 409, 'se cruza con las trenzas');
+    assert.equal((await book(fade.id, 645)).json.error, 'Esa hora está fuera de su horario.', '10:45 + 30 min pasa de las 11:00');
+    assert.equal((await book(fade.id, 660)).json.error, 'Esa hora está fuera de su horario.');
+    assert.equal((await book(fade.id, 600, nextMonday)).json.error, 'Ese día el barbero no atiende.');
+    assert.equal((await book(fade.id, 630)).status, 201);
   });
 
   it('no deja apartar un día que el barbero no atiende', async () => {
@@ -403,7 +451,7 @@ describe('Filo API', () => {
     const res = await api('/api/appointments', {
       token: client,
       method: 'POST',
-      body: { barberId: 'carlos-m', serviceId: 'carlos-m-0', date, hour: 10 },
+      body: { barberId: 'carlos-m', serviceId: 'carlos-m-0', date, start: 10 * 60 },
     });
     assert.equal(res.status, 400);
   });

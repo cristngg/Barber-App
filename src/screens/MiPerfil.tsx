@@ -60,6 +60,9 @@ export function MiPerfil() {
           <ButtonLink to="/mi-perfil/editar" variant="secondary" icon={<Icon name="edit" size={20} />}>
             Editar perfil
           </ButtonLink>
+          <ButtonLink to="/mi-perfil/horario" variant="secondary" icon={<Icon name="clock" size={20} />}>
+            Horario y días libres
+          </ButtonLink>
           <ButtonLink to={`/barbero/${barber.id}`} variant="ghost" icon={<Icon name="eye" size={20} />}>
             Ver como cliente
           </ButtonLink>

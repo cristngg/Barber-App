@@ -14,18 +14,7 @@ import './screens.css';
 
 const BIO_MAX = 240;
 
-/* Lunes primero, como se lee una semana de trabajo. */
-const WEEK = [
-  { day: 1, label: 'Lun' },
-  { day: 2, label: 'Mar' },
-  { day: 3, label: 'Mié' },
-  { day: 4, label: 'Jue' },
-  { day: 5, label: 'Vie' },
-  { day: 6, label: 'Sáb' },
-  { day: 0, label: 'Dom' },
-];
-
-type Errors = Partial<Record<'name' | 'area' | 'workDays', string>>;
+type Errors = Partial<Record<'name' | 'area', string>>;
 
 export function EditarPerfil() {
   const { myBarber, updateMyBarber, locate, locationStatus } = useAppState();
@@ -51,15 +40,11 @@ export function EditarPerfil() {
     });
   };
 
-  const toggleDay = (day: number) =>
-    set('workDays', draft.workDays.includes(day) ? draft.workDays.filter((d) => d !== day) : [...draft.workDays, day]);
-
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const next: Errors = {
       name: draft.name.trim() ? undefined : 'Escribe tu nombre o el de tu barbería.',
       area: draft.area.trim() ? undefined : 'Escribe el barrio donde atiendes.',
-      workDays: draft.workDays.length ? undefined : 'Marca al menos un día.',
     };
     setErrors(next);
     if (Object.values(next).some(Boolean) || saving) return;
@@ -71,8 +56,6 @@ export function EditarPerfil() {
         area: draft.area,
         bio: draft.bio,
         tags: draft.tags,
-        workDays: draft.workDays,
-        freeToday: draft.freeToday,
         location: draft.location,
         avatar: draft.avatar ?? null,
         cover: draft.cover ?? null,
@@ -157,29 +140,6 @@ export function EditarPerfil() {
           </ChipRow>
         </fieldset>
 
-        <fieldset className="step">
-          <legend className="field__label">Días que atiendes</legend>
-          <div className="week-grid" role="group" aria-label="Días que atiendes">
-            {WEEK.map((w) => (
-              <button
-                key={w.day}
-                type="button"
-                className="chip chip--day"
-                aria-pressed={draft.workDays.includes(w.day)}
-                onClick={() => toggleDay(w.day)}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
-          {errors.workDays && (
-            <span className="field__error">
-              <Icon name="alert" size={16} strokeWidth={2} />
-              {errors.workDays}
-            </span>
-          )}
-        </fieldset>
-
         <fieldset className="step" id="ubicacion">
           <legend className="field__label">Dónde atiendes</legend>
           <p className="t-detail">Toca el mapa o arrastra el pin hasta tu barbería. Los clientes lo ven en el mapa.</p>
@@ -207,17 +167,6 @@ export function EditarPerfil() {
           )}
         </fieldset>
 
-        <fieldset className="step">
-          <legend className="field__label">Hoy</legend>
-          <ChipRow label="Disponibilidad de hoy">
-            <Chip selected={draft.freeToday} onToggle={() => set('freeToday', true)}>
-              Libre hoy
-            </Chip>
-            <Chip selected={!draft.freeToday} onToggle={() => set('freeToday', false)}>
-              Sin puestos
-            </Chip>
-          </ChipRow>
-        </fieldset>
       </form>
     </Screen>
   );
