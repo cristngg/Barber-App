@@ -5,6 +5,7 @@ import { ButtonLink } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Photo } from '../components/Photo';
 import { Rating } from '../components/Rating';
+import { Reviews } from '../components/Reviews';
 import { Screen, SectionHeader } from '../components/Screen';
 import { StatusTag } from '../components/StatusTag';
 import { useAppState } from '../state/AppState';
@@ -39,7 +40,7 @@ export function MiPerfil() {
             <StatusTag status={barber.freeToday ? 'free' : 'full'} compact />
           </div>
           <div className="profile__meta">
-            <Rating value={barber.rating} size={16} />
+            <Rating value={barber.rating} count={barber.reviewCount} size={16} />
             <span>{formatDistance(barber, here)}</span>
           </div>
           {barber.bio ? (
@@ -94,6 +95,8 @@ export function MiPerfil() {
           </ul>
           <p className="t-detail">Toca un corte para cambiar su foto, nombre o precio.</p>
         </section>
+
+        <Reviews barberId={barber.id} canReply />
       </div>
     </Screen>
   );

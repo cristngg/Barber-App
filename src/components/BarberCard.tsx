@@ -17,7 +17,7 @@ export function BarberCard({ barber }: { barber: Barber }) {
         <span className="t-card-title">{barber.name}</span>
         <span className="t-detail">{barber.specialties.join(' · ')}</span>
         <div className="barber-card__meta">
-          <Rating value={barber.rating} />
+          <Rating value={barber.rating} count={barber.reviewCount} />
           <span>{km == null ? barber.area : formatKm(km)}</span>
         </div>
       </div>

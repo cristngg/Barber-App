@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom';
 import { Button } from './components/Button';
 import { Screen } from './components/Screen';
 import { Agenda } from './screens/Agenda';
+import { Calificar } from './screens/Calificar';
 import { Citas } from './screens/Citas';
 import { Cortes } from './screens/Cortes';
 import { Cuenta } from './screens/Cuenta';
@@ -48,6 +49,7 @@ export function App() {
           <Route path="/barbero/:id/ruta" element={<Ruta />} />
           <Route path="/cortes" element={<Cortes />} />
           <Route path="/citas" element={<Citas />} />
+          <Route path="/citas/:id/calificar" element={<Calificar />} />
           <Route path="/cuenta" element={<Cuenta />} />
           <Route path="/soy-barbero" element={<Suscripcion />} />
           <Route path="/mi-perfil" element={<MiPerfil />} />

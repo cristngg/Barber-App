@@ -17,7 +17,21 @@ export type Appointment = {
   durationMin: number;
   status: 'pending' | 'confirmed' | 'cancelled';
   createdAt: number;
+  /* Solo en las citas del cliente: si ya puede calificarla y lo que dijo. */
+  canReview?: boolean;
+  review?: { rating: number; text: string } | null;
 };
+
+export type Review = {
+  id: string;
+  rating: number;
+  text: string;
+  author: string;
+  service: string;
+  createdAt: number;
+  reply: string | null;
+};
+export type ReviewsPage = { items: Review[]; rating: number | null; total: number; nextOffset: number | null };
 
 export type User = { id: string; email: string | null; name: string | null; picture: string | null };
 
@@ -161,6 +175,12 @@ export const api = {
   appointments: () => request<Appointment[]>('/api/appointments'),
   book: (a: { barberId: string; serviceId: string; date: string; start: number }) =>
     request<Appointment>('/api/appointments', json('POST', a)),
+  reviews: (barberId: string, offset = 0, limit = 5) =>
+    request<ReviewsPage>(`/api/barbers/${encodeURIComponent(barberId)}/reviews?offset=${offset}&limit=${limit}`, {}, false),
+  review: (appointmentId: string, rating: number, text: string) =>
+    request<{ rating: number; text: string }>(`/api/appointments/${appointmentId}/review`, json('POST', { rating, text })),
+  replyReview: (reviewId: string, text: string) =>
+    request<{ reply: string | null }>(`/api/me/reviews/${reviewId}/reply`, json('POST', { text })),
   cancel: (id: string) => request<Appointment>(`/api/appointments/${id}/cancel`, { method: 'POST' }),
   confirm: (id: string) => request<Appointment>(`/api/appointments/${id}/confirm`, { method: 'POST' }),
 };

@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { transaction, type DB } from './db.js';
+import { HttpError, type AuthedRequest, type Row } from './http.js';
+import { createReviews } from './reviews.js';
 import { burnTime, hashPassword, verifyPassword } from './passwords.js';
 import {
   freeSlots,
@@ -64,19 +66,6 @@ const PHOTO_TYPES: Record<string, { ext: string; magic: number[] }> = {
   'image/webp': { ext: 'webp', magic: [0x52, 0x49, 0x46, 0x46] },
 };
 const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
-
-/* Error con código HTTP y un mensaje que se le puede mostrar a la persona. */
-class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-type Row = Record<string, unknown>;
-type AuthedRequest = Request & { userId?: string };
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
@@ -186,8 +175,8 @@ const isValidDate = (date: unknown): date is string => typeof date === 'string' 
 /* Martes a sábado, de 9:00 a 5:00, para quien recién crea su cuenta. */
 const DEFAULT_WEEKLY: Weekly = [null, null, ...Array.from({ length: 5 }, () => ({ start: 9 * 60, end: 17 * 60 }))];
 
-/* Lo que cambia con la hora: si está abierto ahora y si le queda algún hueco hoy. */
-type Live = { openNow: boolean; freeToday: boolean };
+/* Lo que cambia: si está abierto ahora, si le queda algún hueco hoy y su promedio de reseñas. */
+type Live = { openNow: boolean; freeToday: boolean; rating: number | null; reviewCount: number };
 
 /* El tipo de corte: uno de STYLES. */
 function cutStyle(value: unknown): string {
@@ -206,7 +195,9 @@ function toBarber(row: Row, services: Row[], live: Live) {
     bio: row.bio as string,
     tags,
     specialties: tags.map((t) => SPECIALTIES[t]),
-    rating: row.rating as number | null,
+    /* Promedio real de las reseñas; null = todavía no tiene. */
+    rating: live.rating,
+    reviewCount: live.reviewCount,
     freeToday: live.freeToday,
     openNow: live.openNow,
     weekly,
@@ -283,7 +274,14 @@ export function createApp({
   };
 
   /* Abierto ahora y hueco libre hoy (para el corte más corto que ofrece). */
-  const liveStatus = (row: Row, services: Row[], busyToday: { start: number; end: number }[]): Live => {
+  const reviews = createReviews(db, timeZone);
+
+  const liveStatus = (
+    row: Row,
+    services: Row[],
+    busyToday: { start: number; end: number }[],
+    stats: { rating: number | null; reviewCount: number },
+  ): Live => {
     const now = nowIn(timeZone);
     const weekly = JSON.parse(row.weekly as string) as Weekly;
     const daysOff = JSON.parse(row.days_off as string) as string[];
@@ -291,6 +289,7 @@ export function createApp({
     return {
       openNow: isOpenNow(weekly, daysOff, now),
       freeToday: freeSlots({ weekly, daysOff, date: now.date, duration: shortest, busy: busyToday, now }).length > 0,
+      ...stats,
     };
   };
 
@@ -298,7 +297,7 @@ export function createApp({
     if (!row) return null;
     const services = q.servicesOf.all(row.id as string) as Row[];
     const busy = q.busyOn.all(row.id as string, nowIn(timeZone).date) as { start: number; end: number }[];
-    return toBarber(row, services, liveStatus(row, services, busy));
+    return toBarber(row, services, liveStatus(row, services, busy, reviews.stats(row.id as string)));
   };
 
   /* Todos los barberos de una vez (para listas): una consulta de servicios y una de citas de hoy. */
@@ -313,9 +312,11 @@ export function createApp({
     for (const b of q.busyAll.all(nowIn(timeZone).date) as { barber_id: string; start: number; end: number }[]) {
       busy.set(b.barber_id, [...(busy.get(b.barber_id) ?? []), b]);
     }
+    const stats = reviews.allStats();
     return (q.barbers.all() as Row[]).map((b) => {
       const services = byBarber.get(b.id as string) ?? [];
-      return toBarber(b, services, liveStatus(b, services, busy.get(b.id as string) ?? []));
+      const s = stats.get(b.id as string) ?? { rating: null, reviewCount: 0 };
+      return toBarber(b, services, liveStatus(b, services, busy.get(b.id as string) ?? [], s));
     });
   };
 
@@ -722,7 +723,7 @@ export function createApp({
     const near = Number.isFinite(nearLat) && Number.isFinite(nearLng) ? { lat: nearLat, lng: nearLng } : null;
 
     const rows = allCuts.all() as Row[];
-    const freeToday = new Map(loadAllBarbers().map((b) => [b.id, b.freeToday]));
+    const live = new Map(loadAllBarbers().map((b) => [b.id, b]));
 
     const km = (r: Row) => {
       if (!near || r.lat == null) return Infinity;
@@ -762,8 +763,8 @@ export function createApp({
         id: r.barber_id as string,
         name: r.barber_name as string,
         area: r.area as string,
-        rating: r.rating as number | null,
-        freeToday: freeToday.get(r.barber_id as string) ?? false,
+        rating: live.get(r.barber_id as string)?.rating ?? null,
+        freeToday: live.get(r.barber_id as string)?.freeToday ?? false,
         avatar: (r.avatar as string | null) ?? undefined,
       },
     }));
@@ -825,8 +826,11 @@ export function createApp({
 
   /* --- Citas --- */
 
+  reviews.register(app, auth, myBarberRow);
+
   app.get('/api/appointments', auth, (req: AuthedRequest, res) => {
-    res.json((q.clientAppointments.all(req.userId!) as Row[]).map(toAppointment));
+    /* Con su reseña (si la hay) y si ya se puede calificar. */
+    res.json((q.clientAppointments.all(req.userId!) as Row[]).map((a) => ({ ...toAppointment(a), ...reviews.stateFor(a) })));
   });
 
   app.post('/api/appointments', auth, (req: AuthedRequest, res) => {

@@ -92,6 +92,21 @@ CREATE TABLE IF NOT EXISTS search_log (
 CREATE INDEX IF NOT EXISTS search_log_time ON search_log(created_at);
 CREATE INDEX IF NOT EXISTS search_log_user ON search_log(user_id, term, created_at);
 
+-- Una reseña por cita, de quien la tuvo (ver reviews.ts).
+CREATE TABLE IF NOT EXISTS reviews (
+  id TEXT PRIMARY KEY,
+  appointment_id TEXT NOT NULL UNIQUE REFERENCES appointments(id) ON DELETE CASCADE,
+  barber_id TEXT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+  client_id TEXT NOT NULL REFERENCES users(id),
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  text TEXT NOT NULL DEFAULT '',
+  reply TEXT,
+  reply_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS reviews_barber ON reviews(barber_id, created_at);
+
 CREATE TABLE IF NOT EXISTS appointments (
   id TEXT PRIMARY KEY,
   barber_id TEXT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,

@@ -25,8 +25,9 @@ export type Barber = {
   area: string;
   specialties: string[];
   tags: string[];
-  /* null = perfil nuevo, aún sin valoraciones */
+  /* Promedio real de las reseñas; null = todavía no tiene. */
   rating: number | null;
+  reviewCount: number;
   freeToday: boolean;
   openNow: boolean;
   bio: string;

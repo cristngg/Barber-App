@@ -7,6 +7,7 @@ import { ButtonLink } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Photo } from '../components/Photo';
 import { Rating } from '../components/Rating';
+import { Reviews } from '../components/Reviews';
 import { ActionBar, Screen, SectionHeader } from '../components/Screen';
 import { StatusTag } from '../components/StatusTag';
 import { useAppState } from '../state/AppState';
@@ -51,7 +52,7 @@ export function Perfil() {
             <StatusTag status={barber.freeToday ? 'free' : 'full'} compact />
           </div>
           <div className="profile__meta">
-            <Rating value={barber.rating} size={16} />
+            <Rating value={barber.rating} count={barber.reviewCount} size={16} />
             <span>{formatDistance(barber, here)}</span>
           </div>
           {barber.bio && <p className="t-body">{barber.bio}</p>}
@@ -103,6 +104,8 @@ export function Perfil() {
           </ul>
           {barber.services.length === 0 && <p className="t-detail">Este barbero todavía no ha subido sus cortes.</p>}
         </section>
+
+        <Reviews barberId={barber.id} />
       </div>
     </Screen>
   );

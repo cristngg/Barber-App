@@ -10,13 +10,14 @@ import { createApp } from './app.js';
 import { openDb, seedDemo } from './db.js';
 
 let server: Server;
+let db: ReturnType<typeof openDb>;
 const routeCalls: string[] = [];
 let base: string;
 let dir: string;
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'filo-test-'));
-  const db = openDb(join(dir, 'test.db'));
+  db = openDb(join(dir, 'test.db'));
   seedDemo(db);
   /* Google falso: la credencial "google:<sub>" es válida, cualquier otra no. */
   const verifyGoogle = async (credential: string) => {
@@ -352,6 +353,74 @@ describe('Filo API', () => {
     const there = await pills(otraCiudad);
     assert.equal(there.pills[0].label, 'Mechas');
     assert.equal(there.pills[0].style, 'tinte');
+  });
+
+  it('reseñas: solo quien tuvo la cita, después de la cita; el promedio es real', async () => {
+    const barberToken = await session();
+    const barber = (await api('/api/me/barber', { token: barberToken, method: 'POST', body: { name: 'Con Reseñas', area: 'Y' } })).json;
+    assert.equal(barber.rating, null);
+    assert.equal(barber.reviewCount, 0);
+    const cut = (await api('/api/me/barber/services', { token: barberToken, method: 'POST', body: { name: 'Corte', price: 10, style: 'clasico' } })).json.services[0];
+
+    const date = nextDate(barber.workDays);
+    const bookAs = async (token: string, start: number) =>
+      (await api('/api/appointments', { token, method: 'POST', body: { barberId: barber.id, serviceId: cut.id, date, start } })).json;
+
+    const ana = await signIn('ana-resena');
+    const appt = await bookAs(ana.token, 9 * 60);
+    const review = (token: string, id: string, body: object) => api(`/api/appointments/${id}/review`, { token, method: 'POST', body });
+
+    // Antes de la cita: no
+    const early = await review(ana.token, appt.id, { rating: 5 });
+    assert.equal(early.status, 400);
+    assert.match(early.json.error, /cuando termine la cita/);
+    let mine = (await api('/api/appointments', { token: ana.token })).json.find((a: { id: string }) => a.id === appt.id);
+    assert.equal(mine.canReview, false);
+
+    // La cita ya pasó (ayer)
+    const yesterday = new Date(Date.now() - 86_400_000);
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    db.prepare('UPDATE appointments SET date = ? WHERE id = ?').run(iso(yesterday), appt.id);
+    mine = (await api('/api/appointments', { token: ana.token })).json.find((a: { id: string }) => a.id === appt.id);
+    assert.equal(mine.canReview, true);
+    assert.equal(mine.review, null);
+
+    const stranger = await session();
+    assert.equal((await review(stranger, appt.id, { rating: 1 })).status, 404, 'otra persona no');
+    assert.equal((await review(ana.token, appt.id, { rating: 6 })).json.error, 'Elige de 1 a 5 estrellas.');
+    assert.equal((await review(ana.token, appt.id, { rating: 4, text: 'Buen fade.' })).status, 201);
+    assert.equal((await review(ana.token, appt.id, { rating: 5, text: 'Excelente fade.' })).status, 200, 'se puede corregir');
+
+    // Otra persona, otra cita pasada, 3 estrellas
+    const beto = await signIn('beto-resena');
+    const appt2 = await bookAs(beto.token, 10 * 60);
+    db.prepare('UPDATE appointments SET date = ? WHERE id = ?').run(iso(yesterday), appt2.id);
+    await review(beto.token, appt2.id, { rating: 3 });
+
+    // Una cancelada no se califica
+    const appt3 = await bookAs(beto.token, 11 * 60);
+    await api(`/api/appointments/${appt3.id}/cancel`, { token: beto.token, method: 'POST' });
+    db.prepare('UPDATE appointments SET date = ? WHERE id = ?').run(iso(yesterday), appt3.id);
+    assert.match((await review(beto.token, appt3.id, { rating: 1 })).json.error, /canceladas/);
+
+    const updated = (await api(`/api/barbers/${barber.id}`)).json;
+    assert.equal(updated.rating, 4, '(5 + 3) / 2');
+    assert.equal(updated.reviewCount, 2);
+
+    const list = (await api(`/api/barbers/${barber.id}/reviews`)).json;
+    assert.equal(list.total, 2);
+    assert.equal(list.items[0].author, 'Persona B.', 'nombre corto, la más nueva primero');
+    assert.equal(list.items[1].text, 'Excelente fade.');
+
+    // El barbero responde; otro barbero no puede
+    const reply = await api(`/api/me/reviews/${list.items[1].id}/reply`, { token: barberToken, method: 'POST', body: { text: '¡Gracias, Ana!' } });
+    assert.equal(reply.json.reply, '¡Gracias, Ana!');
+    const other = await session();
+    await api('/api/me/barber', { token: other, method: 'POST', body: { name: 'Otro', area: 'Z' } });
+    assert.equal((await api(`/api/me/reviews/${list.items[1].id}/reply`, { token: other, method: 'POST', body: { text: 'x' } })).status, 404);
+    assert.equal((await api(`/api/barbers/${barber.id}/reviews`)).json.items[1].reply, '¡Gracias, Ana!');
+
+    assert.equal((await api('/api/barbers/carlos-m')).json.rating, null, 'los de ejemplo ya no traen estrellas inventadas');
   });
 
   it('nadie usa las fotos de otro', async () => {
