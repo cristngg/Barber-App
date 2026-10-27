@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatPrice, SPECIALTIES } from '../data/barbers';
+import { formatPrice } from '../data/barbers';
 import { formatKm } from '../data/geo';
 import { BottomNav } from '../components/BottomNav';
 import { Chip, ChipRow } from '../components/Chip';
@@ -10,6 +10,7 @@ import { Screen, SectionHeader } from '../components/Screen';
 import { FormError } from '../components/SignIn';
 import { api, errorMessage, type Cut } from '../state/api';
 import { useAppState } from '../state/AppState';
+import { useSearchLogger, useTrendingPills } from '../state/trending';
 import './screens.css';
 
 const PAGE = 12;
@@ -19,7 +20,13 @@ export function Cortes() {
   const { here } = useAppState();
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
-  const [style, setStyle] = useState<string | null>(null);
+  /* Píldora elegida: un tipo de corte o una palabra que la zona busca mucho. */
+  const pills = useTrendingPills();
+  const [pillKey, setPillKey] = useState<string | null>(null);
+  const pill = pills.find((p) => p.key === pillKey) ?? null;
+  const style = pill?.style ?? null;
+  const fullQuery = [query, pill?.q ?? ''].join(' ').trim();
+  useSearchLogger(input);
   const [items, setItems] = useState<Cut[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [nextOffset, setNextOffset] = useState<number | null>(0);
@@ -41,7 +48,7 @@ export function Cortes() {
       setLoading(true);
       setError(undefined);
       try {
-        const page = await api.cuts({ q: query, style, near: here, offset, limit: PAGE });
+        const page = await api.cuts({ q: fullQuery, style, near: here, offset, limit: PAGE });
         if (id !== search.current) return;
         setItems((prev) => (offset === 0 ? page.items : [...prev, ...page.items]));
         setTotal(page.total);
@@ -53,7 +60,7 @@ export function Cortes() {
       }
     },
     // `here` va por nearKey: moverse unos metros no reinicia la lista.
-    [query, style, nearKey],
+    [fullQuery, style, nearKey],
   );
 
   useEffect(() => {
@@ -83,13 +90,13 @@ export function Cortes() {
 
       <SearchField value={input} onChange={setInput} label="Trenzas, alisado, tinte, fade…" />
 
-      <ChipRow label="Tipo de corte">
-        <Chip selected={style == null} onToggle={() => setStyle(null)}>
+      <ChipRow label="Lo más buscado cerca">
+        <Chip selected={pillKey == null} onToggle={() => setPillKey(null)}>
           Todos
         </Chip>
-        {SPECIALTIES.map((s) => (
-          <Chip key={s.tag} selected={style === s.tag} onToggle={() => setStyle(style === s.tag ? null : s.tag)}>
-            {s.label}
+        {pills.map((p) => (
+          <Chip key={p.key} selected={pillKey === p.key} onToggle={() => setPillKey(pillKey === p.key ? null : p.key)}>
+            {p.label}
           </Chip>
         ))}
       </ChipRow>

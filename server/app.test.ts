@@ -314,6 +314,46 @@ describe('Filo API', () => {
     assert.equal(ids.size, page1.items.length + page2.items.length, 'las páginas no se repiten');
   });
 
+  it('las píldoras siguen lo que más busca la gente de la zona', async () => {
+    const panama = { lat: 8.98, lng: -79.52 };
+    const otraCiudad = { lat: 9.93, lng: -84.08 }; // a más de 50 km
+    const searchAs = async (token: string, q: string, near: object) =>
+      (await api('/api/searches', { token, method: 'POST', body: { q, near } })).json.counted;
+
+    const viewer = await session();
+    const pills = async (near: { lat: number; lng: number }) =>
+      (await api(`/api/trending?near=${near.lat},${near.lng}`, { token: viewer })).json;
+
+    const before = await pills(panama);
+    assert.equal(before.scope, 'none');
+    assert.deepEqual(before.pills.map((p: { label: string }) => p.label).slice(0, 3), ['Fade', 'Barba', 'Diseños'], 'sin datos: los tipos fijos');
+
+    // En Panamá, 3 personas buscan "rayitos" (Tinte); 2 buscan "trenzas": no llega al mínimo.
+    for (let i = 0; i < 3; i++) {
+      const t = await session();
+      assert.equal(await searchAs(t, 'Rayitos', panama), true);
+      assert.equal(await searchAs(t, 'rayitos', panama), false, 'la misma persona no cuenta dos veces');
+      if (i < 2) await searchAs(t, 'trenzas', panama);
+    }
+    // En la otra ciudad dicen "mechas" para lo mismo.
+    for (let i = 0; i < 3; i++) await searchAs(await session(), 'mechas', otraCiudad);
+
+    assert.equal(await searchAs(viewer, 'asdfgh', panama), false, 'palabras sin resultados no cuentan');
+    assert.equal(await searchAs(viewer, 'ab', panama), false, 'muy corta');
+
+    const here = await pills(panama);
+    assert.equal(here.scope, 'local');
+    assert.deepEqual(here.pills[0], { key: 'tinte', label: 'Rayitos', style: 'tinte', q: null, trending: true });
+    assert.ok(!here.pills.some((p: { label: string }) => p.label === 'Mechas'), 'en Panamá no sale la palabra de otra ciudad');
+    assert.ok(!here.pills.some((p: { label: string; trending: boolean }) => p.trending && p.label === 'Trenzas'), 'trenzas no llegó a 3 personas');
+    assert.ok(!here.pills.some((p: { label: string }) => p.label === 'Tinte'), 'Tinte no se repite: ya está como "Rayitos"');
+    assert.ok(here.pills.some((p: { label: string; trending: boolean }) => p.label === 'Trenzas' && !p.trending), 'los tipos fijos siguen');
+
+    const there = await pills(otraCiudad);
+    assert.equal(there.pills[0].label, 'Mechas');
+    assert.equal(there.pills[0].style, 'tinte');
+  });
+
   it('nadie usa las fotos de otro', async () => {
     const owner = await session();
     const photo = await api('/api/photos', { token: owner, method: 'POST', body: JPEG, type: 'image/jpeg' });

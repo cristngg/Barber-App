@@ -73,6 +73,19 @@ CREATE TABLE IF NOT EXISTS photos (
   created_at INTEGER NOT NULL
 );
 
+-- Búsquedas terminadas, para las píldoras de cada zona (ver trending.ts). Ubicación redondeada a ~1 km.
+CREATE TABLE IF NOT EXISTS search_log (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  term TEXT NOT NULL,
+  display TEXT NOT NULL,
+  lat REAL,
+  lng REAL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS search_log_time ON search_log(created_at);
+CREATE INDEX IF NOT EXISTS search_log_user ON search_log(user_id, term, created_at);
+
 CREATE TABLE IF NOT EXISTS appointments (
   id TEXT PRIMARY KEY,
   barber_id TEXT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,

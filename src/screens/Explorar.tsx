@@ -11,39 +11,34 @@ import { SearchField } from '../components/Field';
 import { Icon } from '../components/Icon';
 import { Screen, SectionHeader } from '../components/Screen';
 import { useAppState } from '../state/AppState';
+import { useSearchLogger, useTrendingPills } from '../state/trending';
 import './screens.css';
 
-const FILTERS = [
-  { id: 'abierto', label: 'Abierto ahora' },
-  { id: 'fade', label: 'Fade' },
-  { id: 'barba', label: 'Barba' },
-  { id: 'disenos', label: 'Diseños' },
-  { id: 'trenzas', label: 'Trenzas' },
-  { id: 'alisado', label: 'Alisado' },
-  { id: 'tinte', label: 'Tinte' },
-  { id: 'ninos', label: 'Niños' },
-] as const;
+const OPEN_NOW = 'abierto';
 
-type FilterId = (typeof FILTERS)[number]['id'];
-
+/* Igual que en el servidor: sin acentos ni mayúsculas, y "z" = "s". */
 const normalize = (s: string) =>
   s
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/z/g, 's');
 
 export function Explorar() {
   const { barbers, refreshBarbers, here, locationStatus, locate } = useAppState();
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [byDistance, setByDistance] = useState(true);
-  const [active, setActive] = useState<Set<FilterId>>(new Set());
+  const [active, setActive] = useState<Set<string>>(new Set());
+  /* Píldoras de la zona: lo que más se busca cerca, con la palabra que usan aquí. */
+  const pills = useTrendingPills();
+  useSearchLogger(query);
 
   useEffect(() => {
     refreshBarbers().catch(() => {});
   }, [refreshBarbers]);
 
-  const toggle = (id: FilterId) =>
+  const toggle = (id: string) =>
     setActive((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -54,9 +49,17 @@ export function Explorar() {
   const results = useMemo(() => {
     const q = normalize(query.trim());
     const list = barbers.filter((b) => {
-      if (q && !normalize([b.name, b.area, ...b.specialties].join(' ')).includes(q)) return false;
-      for (const f of active) {
-        if (f === 'abierto' ? !b.openNow : !b.tags.includes(f)) return false;
+      const text = normalize([b.name, b.area, ...b.specialties, ...b.services.map((s) => s.name)].join(' '));
+      if (q && !text.includes(q)) return false;
+      for (const key of active) {
+        if (key === OPEN_NOW) {
+          if (!b.openNow) return false;
+          continue;
+        }
+        const pill = pills.find((p) => p.key === key);
+        if (!pill) continue;
+        if (pill.style && !b.tags.includes(pill.style) && !b.services.some((s) => s.style === pill.style)) return false;
+        if (pill.q && !text.includes(normalize(pill.q))) return false;
       }
       return true;
     });
@@ -64,7 +67,7 @@ export function Explorar() {
     return byDistance && here
       ? [...list].sort((a, b) => km(a) - km(b))
       : [...list].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-  }, [barbers, query, active, byDistance, here]);
+  }, [barbers, query, active, byDistance, here, pills]);
 
   const pins = useMemo<MapPin[]>(
     () => results.flatMap((b) => (b.location ? [{ id: b.id, at: b.location, label: b.name, on: b.freeToday }] : [])),
@@ -99,9 +102,12 @@ export function Explorar() {
         <Chip selected={byDistance} onToggle={() => setByDistance((v) => !v)}>
           Cerca
         </Chip>
-        {FILTERS.map((f) => (
-          <Chip key={f.id} selected={active.has(f.id)} onToggle={() => toggle(f.id)}>
-            {f.label}
+        <Chip selected={active.has(OPEN_NOW)} onToggle={() => toggle(OPEN_NOW)}>
+          Abierto ahora
+        </Chip>
+        {pills.map((p) => (
+          <Chip key={p.key} selected={active.has(p.key)} onToggle={() => toggle(p.key)}>
+            {p.label}
           </Chip>
         ))}
       </ChipRow>

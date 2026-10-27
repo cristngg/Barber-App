@@ -46,6 +46,10 @@ export type Cut = {
 };
 export type CutsPage = { items: Cut[]; total: number; nextOffset: number | null };
 
+/* Píldora de búsqueda: un tipo de corte (`style`) o una palabra libre (`q`). `trending`: sale de lo que busca la zona. */
+export type Pill = { key: string; label: string; style: string | null; q: string | null; trending: boolean };
+export type Trending = { pills: Pill[]; scope: 'local' | 'general' | 'none' };
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -134,6 +138,8 @@ export const api = {
   updateService: (id: string, s: ServiceInput) => request<Barber>(`/api/me/barber/services/${id}`, json('PATCH', s)),
   removeService: (id: string) => request<Barber>(`/api/me/barber/services/${id}`, { method: 'DELETE' }),
   agenda: () => request<Appointment[]>('/api/me/agenda'),
+  trending: (near: LatLng | null) => request<Trending>(`/api/trending${near ? `?near=${near.lat},${near.lng}` : ''}`),
+  logSearch: (q: string, near: LatLng | null) => request<{ counted: boolean }>('/api/searches', json('POST', { q, near })),
   cuts: (p: { q: string; style: string | null; near: LatLng | null; offset: number; limit?: number }) => {
     const params = new URLSearchParams({ q: p.q, offset: String(p.offset), limit: String(p.limit ?? 12) });
     if (p.style) params.set('style', p.style);

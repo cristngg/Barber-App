@@ -6,6 +6,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { transaction, type DB } from './db.js';
 import { burnTime, hashPassword, verifyPassword } from './passwords.js';
 import { matches, STYLE_ORDER, STYLES } from './search.js';
+import { createTrending } from './trending.js';
 
 /*
  * API de Filo.
@@ -30,6 +31,8 @@ export type AppOptions = {
   routingUrl?: string;
   /* Reemplazable en pruebas. */
   fetchImpl?: typeof fetch;
+  /* Cuántas personas distintas deben buscar una palabra para que salga como píldora. */
+  trendingMinUsers?: number;
   /* Detrás de un proxy (Nginx, Cloudflare, el del hosting): usar la IP real del cliente para limitar intentos. */
   trustProxy?: boolean;
   /* Verifica el token de Google; reemplazable en pruebas. */
@@ -252,6 +255,7 @@ export function createApp({
   googleClientId,
   devLogin = false,
   trustProxy = false,
+  trendingMinUsers = 3,
   routingUrl = 'https://routing.openstreetmap.de',
   fetchImpl = fetch,
   verifyGoogle = googleClientId ? googleVerifier(googleClientId) : undefined,
@@ -666,6 +670,11 @@ export function createApp({
     res.json(loadBarber(q.barber.get(row.id as string) as Row));
   });
 
+  const allCuts = db.prepare(
+    `SELECT s.*, b.name AS barber_name, b.area, b.tags, b.lat, b.lng, b.rating, b.free_today, b.avatar
+     FROM services s JOIN barbers b ON b.id = s.barber_id`,
+  );
+
   /*
    * Muro de cortes: los cortes de todos los barberos, para buscar por estilo ("trenzas", "alisado",
    * "pintado") y bajar sin fin. Con `near`, los más cercanos primero; si no, los más recientes.
@@ -679,12 +688,7 @@ export function createApp({
     const [nearLat, nearLng] = String(req.query.near ?? '').split(',').map(Number);
     const near = Number.isFinite(nearLat) && Number.isFinite(nearLng) ? { lat: nearLat, lng: nearLng } : null;
 
-    const rows = db
-      .prepare(
-        `SELECT s.*, b.name AS barber_name, b.area, b.tags, b.lat, b.lng, b.rating, b.free_today, b.avatar
-         FROM services s JOIN barbers b ON b.id = s.barber_id`,
-      )
-      .all() as Row[];
+    const rows = allCuts.all() as Row[];
 
     const km = (r: Row) => {
       if (!near || r.lat == null) return Infinity;
@@ -730,6 +734,33 @@ export function createApp({
       },
     }));
     res.json({ items: page, total: found.length, nextOffset: offset + limit < found.length ? offset + limit : null });
+  });
+
+  /* --- Píldoras según lo que más se busca en la zona --- */
+
+  const trending = createTrending(db, { minUsers: trendingMinUsers });
+  const parseNear = (v: unknown) => {
+    const [lat, lng] = String(v ?? '').split(',').map(Number);
+    return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+  };
+
+  /* La app avisa cuando alguien terminó de escribir una búsqueda (no en cada letra). */
+  app.post('/api/searches', auth, (req: AuthedRequest, res) => {
+    const q = typeof req.body?.q === 'string' ? req.body.q.slice(0, 80) : '';
+    const near = req.body?.near ? coordinates(req.body.near) : null;
+    /* Cuenta solo si encuentra algún corte o barbero: así no se cuelan palabras sin sentido. */
+    const useful = (term: string) =>
+      (allCuts.all() as Row[]).some((r) =>
+        matches(
+          { cutName: r.name as string, style: r.style as string | null, barberName: r.barber_name as string, area: r.area as string, barberTags: JSON.parse(r.tags as string) },
+          term,
+        ),
+      );
+    res.json({ counted: trending.record(req.userId!, q, near, useful) });
+  });
+
+  app.get('/api/trending', auth, (req, res) => {
+    res.json(trending.pills(parseNear(req.query.near)));
   });
 
   app.get('/api/me/agenda', auth, (req: AuthedRequest, res) => {
