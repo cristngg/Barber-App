@@ -6,6 +6,8 @@ import { OAuth2Client } from 'google-auth-library';
 import { transaction, type DB } from './db.js';
 import { HttpError, type AuthedRequest, type Row } from './http.js';
 import { createBilling, isPublic, type BillingProvider } from './billing.js';
+import { createPhoneVerification, type SmsProvider } from './phone.js';
+import { createReports } from './reports.js';
 import { createReviews } from './reviews.js';
 import { burnTime, hashPassword, verifyPassword } from './passwords.js';
 import {
@@ -46,6 +48,10 @@ export type AppOptions = {
   routingUrl?: string;
   /* Reemplazable en pruebas. */
   fetchImpl?: typeof fetch;
+  /* Correos de quienes revisan los reportes. */
+  adminEmails?: string[];
+  /* Envío del código para verificar el celular del barbero; null = no se pide. */
+  smsProvider?: SmsProvider | null;
   /* Cobro de la cuenta de barbero; null = sin cobro (todos los perfiles públicos). */
   billingProvider?: BillingProvider | null;
   /* Cuántas personas distintas deben buscar una palabra para que salga como píldora. */
@@ -240,6 +246,8 @@ export function createApp({
   trustProxy = false,
   trendingMinUsers = 3,
   billingProvider = null,
+  smsProvider = null,
+  adminEmails = [],
   routingUrl = 'https://routing.openstreetmap.de',
   fetchImpl = fetch,
   verifyGoogle = googleClientId ? googleVerifier(googleClientId) : undefined,
@@ -280,8 +288,10 @@ export function createApp({
   /* Abierto ahora y hueco libre hoy (para el corte más corto que ofrece). */
   const reviews = createReviews(db, timeZone);
   const billing = createBilling(db, billingProvider);
+  const phone = createPhoneVerification(db, smsProvider);
+  const reports = createReports(db, adminEmails);
   /* Los de ejemplo (sin dueño) siempre; los demás, si su cuenta está al día. */
-  const visible = (row: Row) => row.owner_id == null || isPublic(billing.status(row));
+  const visible = (row: Row) => row.hidden_at == null && (row.owner_id == null || isPublic(billing.status(row)));
 
   const liveStatus = (
     row: Row,
@@ -433,7 +443,7 @@ export function createApp({
 
   /* Lo que la app necesita saber para mostrar el inicio de sesión. */
   app.get('/api/config', (_req, res) => {
-    res.json({ googleClientId: googleClientId ?? null, devLogin, billing: billing.enabled });
+    res.json({ googleClientId: googleClientId ?? null, devLogin, billing: billing.enabled, phoneVerification: phone.required });
   });
 
   app.post(
@@ -619,11 +629,20 @@ export function createApp({
 
   app.get('/api/me', auth, (req: AuthedRequest, res) => {
     const mine = q.barberByOwner.get(req.userId!) as Row | undefined;
-    res.json({ user: toUser(req.userId!), barber: loadBarber(mine), subscription: billing.summary(mine) });
+    res.json({
+      user: toUser(req.userId!),
+      barber: loadBarber(mine),
+      subscription: billing.summary(mine),
+      phone: { required: phone.required, ...phone.status(req.userId!) },
+      isAdmin: reports.isAdmin(req.userId!),
+      /* Si su perfil está oculto por reportes, para avisarle. */
+      hidden: mine?.hidden_at != null,
+    });
   });
 
   app.post('/api/me/barber', auth, (req: AuthedRequest, res) => {
     if (q.barberByOwner.get(req.userId!)) throw new HttpError(409, 'Ya tienes cuenta de barbero.');
+    if (!phone.isVerified(req.userId!)) throw new HttpError(403, 'Primero verifica tu número de celular.');
     const name = text(req.body?.name, 'tu nombre o el de tu barbería');
     const area = text(req.body?.area, 'el barrio donde atiendes');
     const id = `b-${randomUUID().slice(0, 8)}`;
@@ -840,6 +859,8 @@ export function createApp({
 
   reviews.register(app, auth, myBarberRow);
   billing.register(app, auth);
+  phone.register(app, auth);
+  reports.register(app, auth);
 
   app.get('/api/appointments', auth, (req: AuthedRequest, res) => {
     /* Con su reseña (si la hay) y si ya se puede calificar. */

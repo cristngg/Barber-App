@@ -15,7 +15,7 @@ import './screens.css';
 
 /* Portafolio: el perfil del barbero visto por su dueño, con todo editable. */
 export function MiPerfil() {
-  const { myBarber: barber, here, subscription } = useAppState();
+  const { myBarber: barber, here, subscription, phone, myHidden } = useAppState();
   const location = useLocation();
   const { welcome, payment } = (location.state as { welcome?: boolean; payment?: 'pay' | 'fail' } | null) ?? {};
   const checkout = useCheckout();
@@ -50,6 +50,24 @@ export function MiPerfil() {
               </Button>
             )}
             <FormError message={checkout.error} />
+          </div>
+        )}
+
+        {myHidden && (
+          <div className="sub-banner sub-banner--alert" role="alert">
+            <span className="t-body">
+              Tu perfil está oculto mientras revisamos reportes de clientes. Si crees que es un error, escríbenos a
+              [CORREO DE SOPORTE].
+            </span>
+          </div>
+        )}
+
+        {phone.required && !phone.verified && (
+          <div className="sub-banner sub-banner--warn">
+            <span className="t-body">Verifica tu celular: así sabemos que eres tú y podemos avisarte de tus citas.</span>
+            <ButtonLink to="/mi-perfil/celular" variant="secondary">
+              Verificar celular
+            </ButtonLink>
           </div>
         )}
 

@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router-dom';
 import { Button } from './components/Button';
 import { Screen } from './components/Screen';
+import { AdminReportes } from './screens/AdminReportes';
 import { Agenda } from './screens/Agenda';
 import { Calificar } from './screens/Calificar';
 import { Citas } from './screens/Citas';
@@ -15,9 +16,11 @@ import { MiPerfil } from './screens/MiPerfil';
 import { NotFound } from './screens/NotFound';
 import { PagoPrueba } from './screens/PagoPrueba';
 import { Perfil } from './screens/Perfil';
+import { Reportar } from './screens/Reportar';
 import { Reservar } from './screens/Reservar';
 import { Ruta } from './screens/Ruta';
 import { Suscripcion } from './screens/Suscripcion';
+import { VerificarCelular } from './screens/VerificarCelular';
 import { useAppState } from './state/AppState';
 
 export function App() {
@@ -48,6 +51,8 @@ export function App() {
           <Route path="/barbero/:id" element={<Perfil />} />
           <Route path="/barbero/:id/reservar" element={<Reservar />} />
           <Route path="/barbero/:id/ruta" element={<Ruta />} />
+          <Route path="/barbero/:id/reportar" element={<Reportar />} />
+          <Route path="/admin/reportes" element={<AdminReportes />} />
           <Route path="/cortes" element={<Cortes />} />
           <Route path="/citas" element={<Citas />} />
           <Route path="/citas/:id/calificar" element={<Calificar />} />
@@ -56,6 +61,7 @@ export function App() {
           <Route path="/mi-perfil" element={<MiPerfil />} />
           <Route path="/mi-perfil/editar" element={<EditarPerfil />} />
           <Route path="/mi-perfil/horario" element={<Horario />} />
+          <Route path="/mi-perfil/celular" element={<VerificarCelular />} />
           <Route path="/mi-perfil/corte/:serviceId" element={<EditarCorte />} />
           <Route path="/agenda" element={<Agenda />} />
           <Route path="/pago-prueba/:id" element={<PagoPrueba />} />

@@ -106,6 +106,13 @@ export function Perfil() {
         </section>
 
         <Reviews barberId={barber.id} />
+
+        {barber.id !== myBarber?.id && (
+          <Link to={`/barbero/${barber.id}/reportar`} className="report-link">
+            <Icon name="alert" size={16} strokeWidth={2} />
+            Reportar perfil
+          </Link>
+        )}
       </div>
     </Screen>
   );

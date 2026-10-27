@@ -8,6 +8,7 @@ import { after, before, describe, it } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { createApp } from './app.js';
 import { testProvider } from './billing.js';
+import { testSms } from './phone.js';
 import { openDb, seedDemo } from './db.js';
 
 let server: Server;
@@ -76,6 +77,17 @@ function nextDate(days: number[], from = 1) {
     }
   }
   throw new Error('sin fecha');
+}
+
+/* Levanta otra instancia de la API con opciones propias y la cierra siempre, aunque la prueba falle. */
+async function withServer(options: Partial<Parameters<typeof createApp>[0]>, name: string, fn: (url: string) => Promise<void>) {
+  const srv = createApp({ db: openDb(join(dir, `${name}.db`)), uploadDir: join(dir, `${name}-up`), ...options }).listen(0);
+  await new Promise((r) => srv.once('listening', r));
+  try {
+    await fn(`http://localhost:${(srv.address() as AddressInfo).port}`);
+  } finally {
+    srv.close();
+  }
 }
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
@@ -165,12 +177,9 @@ describe('Filo API', () => {
     assert.ok(googleFirst.token);
   });
 
-  it('sin Google configurado no deja entrar', async () => {
-    const off = createApp({ db: openDb(join(dir, 'off.db')), uploadDir: join(dir, 'off') }).listen(0);
-    await new Promise((r) => off.once('listening', r));
-    const url = `http://localhost:${(off.address() as AddressInfo).port}`;
+  it('sin Google configurado no deja entrar', async () => withServer({}, 'off', async (url) => {
     const config = await (await fetch(url + '/api/config')).json();
-    assert.deepEqual(config, { googleClientId: null, devLogin: false, billing: false });
+    assert.deepEqual(config, { googleClientId: null, devLogin: false, billing: false, phoneVerification: false });
     const res = await fetch(url + '/api/auth/google', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -178,8 +187,7 @@ describe('Filo API', () => {
     });
     assert.equal(res.status, 503);
     assert.equal((await fetch(url + '/api/auth/dev', { method: 'POST' })).status, 404);
-    off.close();
-  });
+  }));
 
   it('migra una base con sesiones anónimas', async () => {
     const file = join(dir, 'vieja.db');
@@ -427,69 +435,166 @@ describe('Filo API', () => {
   it('cobro: pendiente hasta pagar, 30 días, gracia, cancelar y vencer', async () => {
     const billDb = openDb(join(dir, 'billing.db'));
     const verifyGoogle = async (credential: string) => ({ sub: credential, email: `${credential}@gmail.com`, emailVerified: true, name: credential });
-    const app = createApp({ db: billDb, uploadDir: join(dir, 'bill-up'), googleClientId: 't', verifyGoogle, billingProvider: testProvider }).listen(0);
-    await new Promise((r) => app.once('listening', r));
-    const url = `http://localhost:${(app.address() as AddressInfo).port}`;
-    const call = async (path: string, token?: string, body?: object) => {
-      const r = await fetch(url + path, {
-        method: body ? 'POST' : 'GET',
-        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      return { status: r.status, json: (await r.json()) as any };
-    };
-    const login = async (who: string) => (await call('/api/auth/google', undefined, { credential: who })).json.token as string;
-    const listed = async (id: string) => ((await call('/api/barbers')).json as { id: string }[]).some((b) => b.id === id);
+    await withServer({ db: billDb, googleClientId: 't', verifyGoogle, billingProvider: testProvider }, 'billing', async (url) => {
+      const call = async (path: string, token?: string, body?: object) => {
+        const r = await fetch(url + path, {
+          method: body ? 'POST' : 'GET',
+          headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        return { status: r.status, json: (await r.json()) as any };
+      };
+      const login = async (who: string) => (await call('/api/auth/google', undefined, { credential: who })).json.token as string;
+      const listed = async (id: string) => ((await call('/api/barbers')).json as { id: string }[]).some((b) => b.id === id);
 
-    const token = await login('cobro');
-    const barber = (await call('/api/me/barber', token, { name: 'Paga', area: 'X' })).json;
-    assert.equal((await call('/api/me', token)).json.subscription.status, 'pending');
-    assert.equal(await listed(barber.id), false, 'pendiente: no sale');
-    assert.equal((await call(`/api/barbers/${barber.id}`)).status, 404);
+      const token = await login('cobro');
+      const barber = (await call('/api/me/barber', token, { name: 'Paga', area: 'X' })).json;
+      assert.equal((await call('/api/me', token)).json.subscription.status, 'pending');
+      assert.equal(await listed(barber.id), false, 'pendiente: no sale');
+      assert.equal((await call(`/api/barbers/${barber.id}`)).status, 404);
 
-    const checkout = (await call('/api/billing/checkout', token, {})).json;
-    const sessionId = checkout.url.split('/').pop();
-    assert.match(checkout.url, /^\/pago-prueba\//);
-    const other = await login('otro');
-    assert.equal((await call(`/api/billing/test/${sessionId}/pay`, other, {})).status, 404, 'otra persona no paga mi sesión');
+      const checkout = (await call('/api/billing/checkout', token, {})).json;
+      const sessionId = checkout.url.split('/').pop();
+      assert.match(checkout.url, /^\/pago-prueba\//);
+      const other = await login('otro');
+      assert.equal((await call(`/api/billing/test/${sessionId}/pay`, other, {})).status, 404, 'otra persona no paga mi sesión');
 
-    const paid = (await call(`/api/billing/test/${sessionId}/pay`, token, {})).json;
-    assert.equal(paid.status, 'active');
-    const days = (paid.periodEnd - Date.now()) / 86_400_000;
-    assert.ok(days > 29.9 && days <= 30, `30 días (${days})`);
-    assert.equal(await listed(barber.id), true, 'pagado: sale');
-    assert.equal((await call(`/api/billing/test/${sessionId}/pay`, token, {})).status, 409, 'el mismo pago no cuenta dos veces');
+      const paid = (await call(`/api/billing/test/${sessionId}/pay`, token, {})).json;
+      assert.equal(paid.status, 'active');
+      const days = (paid.periodEnd - Date.now()) / 86_400_000;
+      assert.ok(days > 29.9 && days <= 30, `30 días (${days})`);
+      assert.equal(await listed(barber.id), true, 'pagado: sale');
+      assert.equal((await call(`/api/billing/test/${sessionId}/pay`, token, {})).status, 409, 'el mismo pago no cuenta dos veces');
 
-    // Pagar otra vez antes de vencer suma 30 días al final
-    const again = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
-    const twice = (await call(`/api/billing/test/${again}/pay`, token, {})).json;
-    assert.ok(Math.round((twice.periodEnd - paid.periodEnd) / 86_400_000) === 30);
+      // Pagar otra vez antes de vencer suma 30 días al final
+      const again = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
+      const twice = (await call(`/api/billing/test/${again}/pay`, token, {})).json;
+      assert.ok(Math.round((twice.periodEnd - paid.periodEnd) / 86_400_000) === 30);
 
-    // Venció hace 2 días: gracia (sigue saliendo); hace 6: vencido (no sale y no recibe citas)
-    billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 2 * 86_400_000, barber.id);
-    assert.equal((await call('/api/billing', token)).json.subscription.status, 'past_due');
-    assert.equal(await listed(barber.id), true);
-    billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 6 * 86_400_000, barber.id);
-    assert.equal((await call('/api/billing', token)).json.subscription.status, 'expired');
-    assert.equal(await listed(barber.id), false);
-    const client = await login('cliente-cobro');
-    const svc = (await call('/api/me/barber/services', token, { name: 'Corte', price: 10, style: 'fade' })).json.services[0];
-    const booked = await call('/api/appointments', client, { barberId: barber.id, serviceId: svc.id, date: nextDate(barber.workDays), start: 600 });
-    assert.equal(booked.status, 404, 'vencido: no recibe citas');
+      // Venció hace 2 días: gracia (sigue saliendo); hace 6: vencido (no sale y no recibe citas)
+      billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 2 * 86_400_000, barber.id);
+      assert.equal((await call('/api/billing', token)).json.subscription.status, 'past_due');
+      assert.equal(await listed(barber.id), true);
+      billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 6 * 86_400_000, barber.id);
+      assert.equal((await call('/api/billing', token)).json.subscription.status, 'expired');
+      assert.equal(await listed(barber.id), false);
+      const client = await login('cliente-cobro');
+      const svc = (await call('/api/me/barber/services', token, { name: 'Corte', price: 10, style: 'fade' })).json.services[0];
+      const booked = await call('/api/appointments', client, { barberId: barber.id, serviceId: svc.id, date: nextDate(barber.workDays), start: 600 });
+      assert.equal(booked.status, 404, 'vencido: no recibe citas');
 
-    // Un pago rechazado no lo activa
-    const failId = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
-    assert.equal((await call(`/api/billing/test/${failId}/fail`, token, {})).json.status, 'expired');
+      // Un pago rechazado no lo activa
+      const failId = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
+      assert.equal((await call(`/api/billing/test/${failId}/fail`, token, {})).json.status, 'expired');
 
-    // Pagar y cancelar: sigue visible hasta el fin de lo pagado
-    const renew = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
-    await call(`/api/billing/test/${renew}/pay`, token, {});
-    const canceled = (await call('/api/billing/cancel', token, {})).json;
-    assert.equal(canceled.status, 'canceled');
-    assert.equal(await listed(barber.id), true);
-    billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 1000, barber.id);
-    assert.equal((await call('/api/billing', token)).json.subscription.status, 'expired', 'cancelada y vencida: sin gracia');
-    app.close();
+      // Pagar y cancelar: sigue visible hasta el fin de lo pagado
+      const renew = (await call('/api/billing/checkout', token, {})).json.url.split('/').pop();
+      await call(`/api/billing/test/${renew}/pay`, token, {});
+      const canceled = (await call('/api/billing/cancel', token, {})).json;
+      assert.equal(canceled.status, 'canceled');
+      assert.equal(await listed(barber.id), true);
+      billDb.prepare('UPDATE barbers SET period_end = ? WHERE id = ?').run(Date.now() - 1000, barber.id);
+      assert.equal((await call('/api/billing', token)).json.subscription.status, 'expired', 'cancelada y vencida: sin gracia');
+    });
+  });
+
+  it('celular verificado: código de 6 dígitos, límites y un número por cuenta', async () => {
+    const verifyGoogle = async (credential: string) => ({ sub: credential, email: `${credential}@gmail.com`, emailVerified: true, name: credential });
+    await withServer({ googleClientId: 't', verifyGoogle, smsProvider: testSms }, 'phone', async (url) => {
+      const call = async (path: string, token?: string, body?: object) => {
+        const r = await fetch(url + path, {
+          method: body ? 'POST' : 'GET',
+          headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        return { status: r.status, json: (await r.json()) as any };
+      };
+      const login = async (who: string) => (await call('/api/auth/google', undefined, { credential: who })).json.token as string;
+
+      const token = await login('celular');
+      assert.equal((await call('/api/config')).json.phoneVerification, true);
+      const blocked = await call('/api/me/barber', token, { name: 'Sin Celular', area: 'X' });
+      assert.equal(blocked.status, 403);
+      assert.equal(blocked.json.error, 'Primero verifica tu número de celular.');
+
+      assert.match((await call('/api/phone/start', token, { phone: '1234' })).json.error, /no parece válido/);
+      assert.match((await call('/api/phone/start', token, { phone: '2201234' })).json.error, /8 dígitos y empiezan con 6/);
+
+      const started = (await call('/api/phone/start', token, { phone: '6000-1234' })).json;
+      assert.equal(started.phone, '+50760001234');
+      assert.match(started.testCode, /^\d{6}$/);
+
+      const wrong = started.testCode === '000000' ? '111111' : '000000';
+      assert.equal((await call('/api/phone/verify', token, { code: wrong })).json.error, 'Ese código no es. Revísalo y prueba otra vez.');
+      const ok = (await call('/api/phone/verify', token, { code: started.testCode })).json;
+      assert.deepEqual(ok, { phone: '+50760001234', verified: true });
+      assert.equal((await call('/api/me', token)).json.phone.verified, true);
+      assert.equal((await call('/api/me/barber', token, { name: 'Con Celular', area: 'X' })).status, 201);
+
+      // El mismo número no sirve para otra cuenta
+      const other = await login('otro-celular');
+      assert.equal((await call('/api/phone/start', other, { phone: '+507 6000 1234' })).status, 409);
+
+      // Límite de códigos por hora y de intentos por código
+      for (let i = 0; i < 3; i++) await call('/api/phone/start', other, { phone: '6111-2222' });
+      assert.equal((await call('/api/phone/start', other, { phone: '6111-2222' })).status, 429);
+      for (let i = 0; i < 5; i++) await call('/api/phone/verify', other, { code: '999999' });
+      assert.equal((await call('/api/phone/verify', other, { code: '999999' })).status, 429);
+    });
+  });
+
+  it('reportes: 3 personas lo ocultan; el administrador decide', async () => {
+    const verifyGoogle = async (credential: string) => ({ sub: credential, email: `${credential}@gmail.com`, emailVerified: true, name: credential });
+    await withServer({ googleClientId: 't', verifyGoogle, adminEmails: ['Jefa@gmail.com'] }, 'reports', async (url) => {
+      const call = async (path: string, token?: string, body?: object) => {
+        const r = await fetch(url + path, {
+          method: body ? 'POST' : 'GET',
+          headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        return { status: r.status, json: (await r.json()) as any };
+      };
+      const login = async (who: string) => (await call('/api/auth/google', undefined, { credential: who })).json.token as string;
+      const listed = async (id: string) => ((await call('/api/barbers')).json as { id: string }[]).some((b) => b.id === id);
+
+      const owner = await login('reportado');
+      const barber = (await call('/api/me/barber', owner, { name: 'Reportado', area: 'X' })).json;
+      assert.equal((await call(`/api/barbers/${barber.id}/report`, owner, { reason: 'falso' })).status, 400, 'no a sí mismo');
+
+      const a = await login('rep-a');
+      assert.equal((await call(`/api/barbers/${barber.id}/report`, a, { reason: 'nada' })).json.error, 'Elige un motivo.');
+      assert.equal((await call(`/api/barbers/${barber.id}/report`, a, { reason: 'otro' })).json.error, 'Cuéntanos qué pasó.');
+      assert.equal((await call(`/api/barbers/${barber.id}/report`, a, { reason: 'fotos', details: 'Son de Instagram de otro' })).json.hidden, false);
+      assert.equal((await call(`/api/barbers/${barber.id}/report`, a, { reason: 'falso' })).json.hidden, false, 'la misma persona no cuenta dos veces');
+      const b = await login('rep-b');
+      await call(`/api/barbers/${barber.id}/report`, b, { reason: 'falso' });
+      assert.equal(await listed(barber.id), true, 'con 2 sigue');
+      const c = await login('rep-c');
+      assert.equal((await call(`/api/barbers/${barber.id}/report`, c, { reason: 'trato', details: 'Me gritó' })).json.hidden, true);
+      assert.equal(await listed(barber.id), false, 'con 3 se oculta');
+      assert.equal((await call('/api/me', owner)).json.hidden, true, 'el barbero lo sabe');
+
+      // Solo el administrador ve la cola
+      assert.equal((await call('/api/admin/reports', a)).status, 403);
+      const admin = await login('jefa');
+      assert.equal((await call('/api/me', admin)).json.isAdmin, true, 'correo sin importar mayúsculas');
+      const queue = (await call('/api/admin/reports', admin)).json;
+      assert.equal(queue[0].name, 'Reportado');
+      assert.equal(queue[0].hidden, true);
+      assert.equal(queue[0].reports.length, 3);
+      assert.ok(queue[0].reports.some((r: { reason: string; details: string }) => r.reason === 'Mal trato o acoso' && r.details === 'Me gritó'));
+
+      // Volver a mostrar: descarta los reportes
+      await call(`/api/admin/barbers/${barber.id}/restore`, admin, {});
+      assert.equal(await listed(barber.id), true);
+      assert.equal((await call('/api/admin/reports', admin)).json.length, 0);
+
+      // Ocultar a mano: queda oculto y en la lista como oculto sin reportes abiertos
+      await call(`/api/admin/barbers/${barber.id}/hide`, admin, {});
+      assert.equal(await listed(barber.id), false);
+      const hiddenQueue = (await call('/api/admin/reports', admin)).json;
+      assert.equal(hiddenQueue[0].hiddenBy, 'admin');
+    });
   });
 
   it('sin cobro, las cuentas nuevas salen de una vez', async () => {

@@ -686,3 +686,60 @@
   height: 10px;
   border-radius: 0;
 }
+
+/* ---------- Celular ---------- */
+.phone-verify {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.code-input {
+  font: 700 28px/32px var(--font-display);
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+
+/* ---------- Reportes ---------- */
+.report-link {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--touch);
+  color: var(--color-muted);
+  font: 500 14px/18px var(--font-body);
+}
+
+.option--tall {
+  height: auto;
+  min-height: var(--control-h);
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.option--tall[aria-checked='true'] {
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+.admin-card {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+}
+
+.admin-reports {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font: 400 15px/22px var(--font-body);
+}
+
+.admin-reports p {
+  margin: 2px 0 0;
+}

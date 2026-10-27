@@ -16,10 +16,23 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT,
   picture TEXT,
   password_hash TEXT,
+  -- Celular verificado con código (ver phone.ts), en formato +50760001234.
+  phone TEXT,
+  phone_verified_at INTEGER,
   created_at INTEGER NOT NULL
 );
 -- Un correo, una cuenta (sin importar mayúsculas), entre con Google o con contraseña.
 CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email COLLATE NOCASE);
+
+-- Códigos enviados para verificar el celular (se guarda el hash, nunca el código).
+CREATE TABLE IF NOT EXISTS phone_codes (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS phone_codes_user ON phone_codes(user_id, created_at);
 
 -- Una fila por teléfono con sesión abierta. Se guarda el hash del token, nunca el token.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -51,6 +64,9 @@ CREATE TABLE IF NOT EXISTS barbers (
   sub_status TEXT,
   sub_ref TEXT,
   period_end INTEGER,
+  -- Oculto por reportes o por un administrador (ver reports.ts): cuándo y por qué.
+  hidden_at INTEGER,
+  hidden_by TEXT,
   avatar TEXT,
   cover TEXT,
   -- Dónde atiende (WGS84). NULL = todavía no marca su ubicación.
@@ -119,6 +135,18 @@ CREATE TABLE IF NOT EXISTS billing_sessions (
   created_at INTEGER NOT NULL
 );
 
+-- Reportes de clientes sobre un perfil: uno por persona y barbero (se puede actualizar).
+CREATE TABLE IF NOT EXISTS reports (
+  id TEXT PRIMARY KEY,
+  barber_id TEXT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+  reporter_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL,
+  details TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (barber_id, reporter_id)
+);
+
 CREATE TABLE IF NOT EXISTS appointments (
   id TEXT PRIMARY KEY,
   barber_id TEXT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
@@ -156,7 +184,13 @@ export function openDb(file: string): DB {
   addColumn(db, 'barbers', 'sub_status', 'TEXT');
   addColumn(db, 'barbers', 'sub_ref', 'TEXT');
   addColumn(db, 'barbers', 'period_end', 'INTEGER');
+  addColumn(db, 'users', 'phone', 'TEXT');
+  addColumn(db, 'users', 'phone_verified_at', 'INTEGER');
+  addColumn(db, 'barbers', 'hidden_at', 'INTEGER');
+  addColumn(db, 'barbers', 'hidden_by', 'TEXT');
   db.exec(SCHEMA);
+  /* Un celular verificado, una cuenta. */
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_phone ON users(phone) WHERE phone_verified_at IS NOT NULL');
   migrateSchedule(db);
   /* Barberos de antes del cobro: quedan activos 30 días desde hoy, sin cortarles nada de golpe. */
   db.prepare("UPDATE barbers SET sub_status = 'active', period_end = ? WHERE owner_id IS NOT NULL AND sub_status IS NULL").run(

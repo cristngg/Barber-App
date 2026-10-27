@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Barber } from '../data/barbers';
 import type { LatLng } from '../data/geo';
-import { api, ApiError, hasSession, onSessionExpired, type Appointment, type BarberPatch, type Config, type ServiceInput, type Subscription, type User } from './api';
+import { api, ApiError, hasSession, onSessionExpired, type Appointment, type BarberPatch, type Config, type PhoneStatus, type ServiceInput, type Subscription, type User } from './api';
 import { load, save } from './storage';
 
 export type { Appointment, User } from './api';
@@ -35,6 +35,11 @@ type AppState = {
   /* El perfil del barbero que usa este teléfono y el estado de su cuenta (cobro). */
   myBarber: Barber | null;
   subscription: Subscription | null;
+  phone: PhoneStatus;
+  /* Revisa reportes (su correo está en ADMIN_EMAILS). */
+  isAdmin: boolean;
+  /* Mi perfil de barbero está oculto por reportes. */
+  myHidden: boolean;
   /* Volver a leer mi perfil y mi suscripción (p. ej. después de pagar). */
   refreshMe: () => Promise<void>;
   createMyBarber: (name: string, area: string) => Promise<Barber>;
@@ -61,8 +66,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [myBarber, setMyBarber] = useState<Barber | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [config, setConfig] = useState<Config>({ googleClientId: null, devLogin: false, billing: false });
+  const [config, setConfig] = useState<Config>({ googleClientId: null, devLogin: false, billing: false, phoneVerification: false });
   const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [phone, setPhone] = useState<PhoneStatus>({ required: false, phone: null, verified: false });
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [myHidden, setMyHidden] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [here, setHere] = useState<LatLng | null>(null);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
@@ -117,6 +125,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setUser(me.user);
     setMyBarber(me.barber);
     setSubscription(me.subscription);
+    setPhone(me.phone);
+    setIsAdmin(me.isAdmin);
+    setMyHidden(me.hidden);
     setAppointments(appts);
   }, []);
 
@@ -265,6 +276,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       refreshBarbers,
       myBarber,
       subscription,
+      phone,
+      isAdmin,
+      myHidden,
       refreshMe: loadMine,
       createMyBarber,
       updateMyBarber,
@@ -275,7 +289,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       book,
       cancel,
     }),
-    [status, retry, config, user, here, locationStatus, locate, signInWithGoogle, signInDev, signInWithPassword, register, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, subscription, loadMine, createMyBarber, updateMyBarber,
+    [status, retry, config, user, here, locationStatus, locate, signInWithGoogle, signInDev, signInWithPassword, register, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, subscription, phone, isAdmin, myHidden, loadMine, createMyBarber, updateMyBarber,
       saveService, removeService, appointments, refreshAppointments, book, cancel],
   );
 

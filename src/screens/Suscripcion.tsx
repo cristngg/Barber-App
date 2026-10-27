@@ -3,7 +3,8 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { TextField } from '../components/Field';
 import { Icon } from '../components/Icon';
-import { ActionBar, Screen } from '../components/Screen';
+import { PhoneVerify } from '../components/PhoneVerify';
+import { ActionBar, Screen, SectionHeader } from '../components/Screen';
 import { errorMessage } from '../state/api';
 import { useAppState } from '../state/AppState';
 import { useCheckout } from '../state/billing';
@@ -18,7 +19,9 @@ const BENEFITS = [
 ];
 
 export function Suscripcion() {
-  const { myBarber, createMyBarber, user, config } = useAppState();
+  const { myBarber, createMyBarber, user, config, phone } = useAppState();
+  /* Si se pide, primero el celular verificado (una cuenta por número). */
+  const needsPhone = config.phoneVerification && !phone.verified;
   const checkout = useCheckout();
   const [hadAccount] = useState(!!myBarber);
   const navigate = useNavigate();
@@ -38,7 +41,7 @@ export function Suscripcion() {
       zone: zone.trim() ? undefined : 'Escribe el barrio donde atiendes.',
     };
     setErrors(next);
-    if (next.name || next.zone || saving) return;
+    if (next.name || next.zone || saving || needsPhone) return;
     /* La cuenta ya se creó pero el pago no abrió: solo reintentar el pago. */
     if (myBarber) {
       await checkout.start();
@@ -67,7 +70,8 @@ export function Suscripcion() {
               {saveError ?? checkout.error}
             </span>
           )}
-          <Button type="submit" form="plan-form" disabled={saving || checkout.busy}>
+          {needsPhone && <span className="t-detail fine-print">Primero verifica tu celular.</span>}
+          <Button type="submit" form="plan-form" disabled={saving || checkout.busy || needsPhone}>
             {saving ? 'Creando tu cuenta…' : `Crear mi cuenta · ${PLAN_PRICE}/mes`}
           </Button>
           <span className="t-detail fine-print">[TÉRMINOS DE COBRO Y CANCELACIÓN]</span>
@@ -97,6 +101,14 @@ export function Suscripcion() {
         ))}
       </ul>
 
+      {config.phoneVerification && (
+        <section className="stack-12">
+          <SectionHeader title="1 · Tu celular" />
+          <PhoneVerify />
+        </section>
+      )}
+
+      {config.phoneVerification && <SectionHeader title="2 · Tu barbería" />}
       <form id="plan-form" className="stack-14" onSubmit={submit} noValidate>
         <TextField
           label="Tu nombre o el de tu barbería"

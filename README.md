@@ -33,6 +33,8 @@ npm test             # pruebas de la API
 | `GOOGLE_CLIENT_ID` | (vacío) | ID de cliente OAuth de Google. Sin él, nadie puede entrar con Google. |
 | `ROUTING_URL` | `https://routing.openstreetmap.de` | Servicio de rutas compatible con OSRM para "Cómo llegar". El de OpenStreetMap (FOSSGIS) es gratis y de uso moderado; con mucho tráfico, usa tu propio OSRM o un proveedor. |
 | `BILLING_PROVIDER` | `test` (desarrollo) / `off` (producción) | Cobro de la cuenta de barbero. `test`: pago simulado, no cobra (no se permite en producción). `off`: sin cobro, todas las cuentas son públicas. |
+| `SMS_PROVIDER` | `test` (desarrollo) / `off` (producción) | Verificar el celular del barbero. `test`: el código se muestra en pantalla, no se envía (no se permite en producción). `off`: no se pide. |
+| `ADMIN_EMAILS` | (vacío) | Correos, separados por comas, de quienes revisan los reportes (pantalla "Revisar reportes" en Cuenta). |
 | `TRUST_PROXY` | `0` | Con `1`, usa la IP real del cliente cuando el servidor está detrás de un proxy (Nginx, Cloudflare, el del hosting). Hace falta para que el límite de intentos de contraseña funcione bien. |
 | `DEV_LOGIN` | `0` | Con `1`, muestra "Entrar de prueba" (entrar con un nombre, sin Google). Solo para desarrollo: el servidor no arranca si está activo con `NODE_ENV=production`. |
 
@@ -80,6 +82,8 @@ Sin volumen persistente, cada reinicio borra los perfiles, las fotos y las citas
 - **Reseñas** (`server/reviews.ts`, `src/components/Reviews.tsx`): quien tuvo la cita la puede calificar (1 a 5 estrellas y un texto opcional) cuando terminó y hasta 30 días después, desde "Mis citas → Pasadas". Una reseña por cita, que se puede corregir. Sale con el nombre corto ("Ana P."). El barbero responde desde su portafolio. Las estrellas del perfil son el promedio real; sin reseñas, dice "Nuevo".
 - **Cobro de la cuenta de barbero** (`server/billing.ts`, `src/state/billing.ts`): $3.99 por 30 días. Una cuenta nueva queda *pendiente* y su perfil no sale en el mapa, la búsqueda ni recibe citas hasta pagar. Cada pago suma 30 días (desde hoy o desde el fin de lo ya pagado). Si no renueva, 5 días de gracia y luego *vence*. Si cancela, sigue visible hasta el fin de lo pagado. El portafolio avisa qué falta y Cuenta muestra la suscripción con "Cancelar" o "Pagar/Reactivar". Las cuentas creadas antes del cobro quedan activas 30 días.
   - **Proveedor:** hoy solo existe el de prueba (`/pago-prueba/:id`, "Pagar" o "Simular pago rechazado", sin cobrar). Para conectar PayPal u otro, escribe un `BillingProvider` en `server/billing.ts` con `checkout` (devuelve la URL de pago), `cancel` y `parseWebhook` (verifica la firma y devuelve eventos `paid`, `failed`, `canceled`), y elígelo con `BILLING_PROVIDER`. El aviso del proveedor llega a `POST /api/billing/webhook`; aplicar un pago es idempotente.
+- **Celular verificado** (`server/phone.ts`, `src/components/PhoneVerify.tsx`): para crear la cuenta de barbero hay que verificar el celular con un código de 6 dígitos (vence en 10 min, 5 intentos, 3 códigos por hora). Un número verificado, una sola cuenta. Sin código de país se asume Panamá (+507, 8 dígitos que empiezan con 6). Los barberos de antes ven un aviso para verificarlo. Para enviar SMS o WhatsApp de verdad, escribe un `SmsProvider` con `send` (Twilio, WhatsApp Cloud API…) y elígelo con `SMS_PROVIDER`.
+- **Reportar perfil** (`server/reports.ts`, `src/screens/Reportar.tsx`, `src/screens/AdminReportes.tsx`): al final de cada perfil, con motivo (perfil falso, fotos que no son suyas, mal trato o acoso, cobro indebido, otro) y comentario. Es anónimo y cuenta una vez por persona. Si 3 personas distintas lo reportan en 30 días, el perfil se oculta solo y el barbero ve que está en revisión. Quien esté en `ADMIN_EMAILS` revisa en Cuenta → Revisar reportes y decide: mantenerlo oculto o volver a mostrarlo (descarta los reportes).
 - **Citas:** el servidor valida que el barbero atienda ese día y a esa hora, que no haya pasado y que no se cruce con otra cita; revisa y guarda en una sola transacción. Cancelar libera el espacio.
 - **Fotos:** solo se aceptan JPEG, PNG o WebP de hasta 6 MB, y cada quien solo puede usar las fotos que subió. Al reemplazar o quitar una foto, el servidor la borra.
 
@@ -98,5 +102,6 @@ En Cuenta se cambia entre usar Filo como cliente o como barbero.
 - Recuperar contraseña ("¿Olvidaste tu contraseña?") y confirmar el correo: necesitan un servicio para enviar correos.
 - Más formas de entrar (teléfono, Apple).
 - Conectar un proveedor de pago real (PayPal, etc.) y los `[TÉRMINOS DE COBRO Y CANCELACIÓN]`.
+- Conectar un proveedor de SMS o WhatsApp para enviar los códigos, y poner el `[CORREO DE SOPORTE]` del aviso de perfil en revisión.
 - Límite de solicitudes por IP antes de abrirlo al público.
 - Los barberos de ejemplo siguen con `$[PRECIO]` y sin fotos; se apagan con `SEED_DEMO=0`.

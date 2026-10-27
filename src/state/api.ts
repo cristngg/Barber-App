@@ -31,11 +31,23 @@ export type Review = {
   createdAt: number;
   reply: string | null;
 };
+export type AdminReport = {
+  barberId: string;
+  name: string;
+  area: string;
+  hidden: boolean;
+  hiddenBy: string | null;
+  reports: { reason: string; details: string; createdAt: number }[];
+};
+
 export type ReviewsPage = { items: Review[]; rating: number | null; total: number; nextOffset: number | null };
 
 export type User = { id: string; email: string | null; name: string | null; picture: string | null };
 
-export type Config = { googleClientId: string | null; devLogin: boolean; billing: boolean };
+export type Config = { googleClientId: string | null; devLogin: boolean; billing: boolean; phoneVerification: boolean };
+
+/* Celular del barbero: si se pide verificarlo, cuál es y si ya está verificado. */
+export type PhoneStatus = { required: boolean; phone: string | null; verified: boolean };
 
 /* Cuenta de barbero: pending (falta pagar), active, past_due (en gracia), canceled (hasta el fin de lo pagado), expired. */
 export type SubStatus = 'pending' | 'active' | 'past_due' | 'canceled' | 'expired';
@@ -156,7 +168,22 @@ export const api = {
       false,
     ),
 
-  me: () => request<{ user: User; barber: Barber | null; subscription: Subscription | null }>('/api/me'),
+  me: () =>
+    request<{
+      user: User;
+      barber: Barber | null;
+      subscription: Subscription | null;
+      phone: PhoneStatus;
+      isAdmin: boolean;
+      hidden: boolean;
+    }>('/api/me'),
+  reportBarber: (barberId: string, reason: string, details: string) =>
+    request<{ ok: boolean }>(`/api/barbers/${encodeURIComponent(barberId)}/report`, json('POST', { reason, details })),
+  adminReports: () => request<AdminReport[]>('/api/admin/reports'),
+  adminAction: (barberId: string, action: 'hide' | 'restore') =>
+    request<{ ok: boolean }>(`/api/admin/barbers/${encodeURIComponent(barberId)}/${action}`, json('POST', {})),
+  startPhone: (phone: string) => request<{ phone: string; sent: boolean; testCode?: string }>('/api/phone/start', json('POST', { phone })),
+  verifyPhone: (code: string) => request<{ phone: string; verified: boolean }>('/api/phone/verify', json('POST', { code })),
   billing: () =>
     request<{ enabled: boolean; provider: string | null; plan: Plan; subscription: Subscription | null }>('/api/billing'),
   checkout: () => request<{ url: string }>('/api/billing/checkout', json('POST', {})),

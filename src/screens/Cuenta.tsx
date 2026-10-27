@@ -12,7 +12,7 @@ import { formatDay, PLAN_LABEL, STATUS_LABEL, useCheckout } from '../state/billi
 import './screens.css';
 
 export function Cuenta() {
-  const { theme, setTheme, mode, setMode, myBarber, user, signOut, config, subscription, refreshMe } = useAppState();
+  const { theme, setTheme, mode, setMode, myBarber, user, signOut, config, subscription, refreshMe, isAdmin } = useAppState();
   const navigate = useNavigate();
   const checkout = useCheckout();
   const [busy, setBusy] = useState(false);
@@ -59,6 +59,16 @@ export function Cuenta() {
             Cerrar sesión
           </Button>
         </section>
+      )}
+
+      {isAdmin && (
+        <Link to="/admin/reportes" className="promo">
+          <span className="promo__body">
+            <span className="t-card-title">Revisar reportes</span>
+            <span className="t-detail">Perfiles que los clientes reportaron.</span>
+          </span>
+          <Icon name="chevron" size={22} />
+        </Link>
       )}
 
       {myBarber && (
