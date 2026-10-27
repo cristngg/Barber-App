@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Barber } from '../data/barbers';
+import type { LatLng } from '../data/geo';
 import { api, ApiError, hasSession, onSessionExpired, type Appointment, type BarberPatch, type Config, type ServiceInput, type User } from './api';
 import { load, save } from './storage';
 
@@ -7,6 +8,7 @@ export type { Appointment, User } from './api';
 export type Theme = 'dark' | 'light';
 export type Mode = 'client' | 'barber';
 export type Status = 'loading' | 'ready' | 'offline';
+export type LocationStatus = 'idle' | 'asking' | 'on' | 'denied' | 'unavailable';
 
 type AppState = {
   status: Status;
@@ -19,6 +21,10 @@ type AppState = {
   signInWithPassword: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /* Dónde está la persona, si compartió su ubicación. */
+  here: LatLng | null;
+  locationStatus: LocationStatus;
+  locate: () => Promise<LatLng | null>;
   theme: Theme;
   setTheme: (theme: Theme) => void;
   mode: Mode;
@@ -54,6 +60,43 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [config, setConfig] = useState<Config>({ googleClientId: null, devLogin: false });
   const [user, setUser] = useState<User | null>(null);
+  const [here, setHere] = useState<LatLng | null>(null);
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
+
+  /* Pide la ubicación al navegador. Solo se llama tras un toque, o sola si ya dio permiso antes. */
+  const locate = useCallback(
+    () =>
+      new Promise<LatLng | null>((resolve) => {
+        if (!('geolocation' in navigator)) {
+          setLocationStatus('unavailable');
+          return resolve(null);
+        }
+        setLocationStatus('asking');
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const at = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            setHere(at);
+            setLocationStatus('on');
+            resolve(at);
+          },
+          (err) => {
+            setLocationStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable');
+            resolve(null);
+          },
+          { enableHighAccuracy: false, timeout: 10_000, maximumAge: 5 * 60_000 },
+        );
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    navigator.permissions
+      ?.query({ name: 'geolocation' })
+      .then((p) => {
+        if (p.state === 'granted') locate();
+      })
+      .catch(() => {});
+  }, [locate]);
 
   const clearSession = useCallback(() => {
     setUser(null);
@@ -195,6 +238,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       retry,
       config,
       user,
+      here,
+      locationStatus,
+      locate,
       signInWithGoogle,
       signInDev,
       signInWithPassword,
@@ -217,7 +263,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       book,
       cancel,
     }),
-    [status, retry, config, user, signInWithGoogle, signInDev, signInWithPassword, register, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, createMyBarber, updateMyBarber,
+    [status, retry, config, user, here, locationStatus, locate, signInWithGoogle, signInDev, signInWithPassword, register, signOut, theme, mode, barbers, getBarber, refreshBarbers, myBarber, createMyBarber, updateMyBarber,
       saveService, removeService, appointments, refreshAppointments, book, cancel],
   );
 

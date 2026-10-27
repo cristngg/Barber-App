@@ -217,6 +217,25 @@ describe('Filo API', () => {
     assert.equal(me.json.barber.name, 'Cristofer');
   });
 
+  it('el barbero marca dónde atiende', async () => {
+    const token = await session();
+    const created = await api('/api/me/barber', { token, method: 'POST', body: { name: 'Con Mapa', area: 'Obarrio' } });
+    assert.equal(created.json.location, null);
+
+    const bad = await api('/api/me/barber', { token, method: 'PATCH', body: { location: { lat: 120, lng: 0 } } });
+    assert.equal(bad.status, 400);
+
+    const set = await api('/api/me/barber', { token, method: 'PATCH', body: { location: { lat: 8.98512345, lng: -79.51987654 } } });
+    assert.deepEqual(set.json.location, { lat: 8.98512, lng: -79.51988 });
+
+    const list = (await api('/api/barbers')).json as { id: string; location: unknown }[];
+    assert.deepEqual(list.find((b) => b.id === created.json.id)?.location, { lat: 8.98512, lng: -79.51988 });
+    assert.ok(list.find((b) => b.id === 'carlos-m')?.location, 'los de ejemplo tienen ubicación');
+
+    const cleared = await api('/api/me/barber', { token, method: 'PATCH', body: { location: null } });
+    assert.equal(cleared.json.location, null);
+  });
+
   it('nadie usa las fotos de otro', async () => {
     const owner = await session();
     const photo = await api('/api/photos', { token: owner, method: 'POST', body: JPEG, type: 'image/jpeg' });

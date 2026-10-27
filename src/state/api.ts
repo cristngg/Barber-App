@@ -21,7 +21,10 @@ export type User = { id: string; email: string | null; name: string | null; pict
 export type Config = { googleClientId: string | null; devLogin: boolean };
 
 export type BarberPatch = Partial<
-  Pick<Barber, 'name' | 'area' | 'bio' | 'tags' | 'workDays' | 'freeToday'> & { avatar: string | null; cover: string | null }
+  Pick<Barber, 'name' | 'area' | 'bio' | 'tags' | 'workDays' | 'freeToday' | 'location'> & {
+    avatar: string | null;
+    cover: string | null;
+  }
 >;
 
 export type ServiceInput = { name: string; price: number; photo?: string | null };

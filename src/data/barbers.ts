@@ -1,3 +1,5 @@
+import { distanceKm, formatKm, type LatLng } from './geo';
+
 /*
  * Forma de un barbero tal como la devuelve la API (server/app.ts).
  * Precios: `null` hasta que el barbero ponga el suyo; se muestran como $[PRECIO].
@@ -18,8 +20,6 @@ export type Barber = {
   tags: string[];
   /* null = perfil nuevo, aún sin valoraciones */
   rating: number | null;
-  /* null = distancia desconocida */
-  distanceKm: number | null;
   freeToday: boolean;
   openNow: boolean;
   bio: string;
@@ -32,8 +32,8 @@ export type Barber = {
   /* Horas de atención en formato 24 h */
   hours: number[];
   services: Service[];
-  /* Posición en el mini mapa, en % del ancho y alto */
-  map: { x: number; y: number };
+  /* Dónde atiende; null si todavía no lo marcó. */
+  location: LatLng | null;
 };
 
 /* Especialidades que un barbero puede marcar en su perfil. */
@@ -58,6 +58,13 @@ export function parsePrice(input: string): number | null {
   return n > 0 && n < 1000 ? n : null;
 }
 
-export function formatDistance(barber: Barber) {
-  return barber.distanceKm == null ? barber.area : `${barber.distanceKm.toFixed(1)} km · ${barber.area}`;
+/* Distancia desde `here`, o null si falta alguna de las dos ubicaciones. */
+export function barberDistance(barber: Barber, here: LatLng | null) {
+  return here && barber.location ? distanceKm(here, barber.location) : null;
+}
+
+/* "0.8 km · Bella Vista", o solo el barrio si no sabemos la distancia. */
+export function formatDistance(barber: Barber, here: LatLng | null) {
+  const km = barberDistance(barber, here);
+  return km == null ? barber.area : `${formatKm(km)} · ${barber.area}`;
 }

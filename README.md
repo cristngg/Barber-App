@@ -70,6 +70,7 @@ Sin volumen persistente, cada reinicio borra los perfiles, las fotos y las citas
 - **Entrada:** sin sesión, lo primero que se ve es la pantalla de entrada (`src/screens/Entrar.tsx`): "Continuar con Google" o correo y contraseña ("Entrar" / "Crear cuenta").
 - **Correo y contraseña:** contraseñas de al menos 8 caracteres, guardadas con `scrypt` (`server/passwords.ts`); nunca se guarda la contraseña. Tras 8 intentos fallidos en 15 minutos para un mismo correo e IP, se bloquea un rato. Un correo es una sola cuenta: si alguien creó su cuenta con contraseña y luego entra con Google con ese mismo correo (verificado por Google), las dos formas quedan unidas.
 - **Identidad con Google:** La app recibe una credencial de Google, el servidor la verifica con `google-auth-library` y entrega un token de sesión propio (se guarda solo su hash). La cuenta de barbero y las citas quedan ligadas a la cuenta de Google, así que se recuperan desde cualquier teléfono. Una sesión sin uso en 180 días vence; "Cerrar sesión" la borra del servidor.
+- **Mapa:** Leaflet con mosaicos de OpenStreetMap (gratis, sin clave; `src/components/Map.tsx`). Cada barbero marca dónde atiende en "Editar perfil" (tocando el mapa, arrastrando el pin o con "Estoy aquí"). El cliente comparte su ubicación desde el navegador (solo se pide tras un toque) y las distancias se calculan en el teléfono; su ubicación no se envía al servidor. "Cómo llegar" abre la ruta en Google Maps. OpenStreetMap pide la atribución visible y un uso moderado: con mucho tráfico, cambia `TILE_URL` por un proveedor de mosaicos.
 - **Citas:** el servidor valida que el barbero atienda ese día, que la hora no haya pasado y que nadie la haya tomado (una hora solo se aparta una vez; cancelar la libera).
 - **Fotos:** solo se aceptan JPEG, PNG o WebP de hasta 6 MB, y cada quien solo puede usar las fotos que subió. Al reemplazar o quitar una foto, el servidor la borra.
 
@@ -88,6 +89,5 @@ En Cuenta se cambia entre usar Filo como cliente o como barbero.
 - Recuperar contraseña ("¿Olvidaste tu contraseña?") y confirmar el correo: necesitan un servicio para enviar correos.
 - Más formas de entrar (teléfono, Apple).
 - Cobro de la suscripción y `[TÉRMINOS DE COBRO Y CANCELACIÓN]`.
-- Distancia real (ubicación del cliente y del barbero); hoy los perfiles nuevos muestran solo el barrio.
 - Límite de solicitudes por IP antes de abrirlo al público.
 - Los barberos de ejemplo siguen con `$[PRECIO]` y sin fotos; se apagan con `SEED_DEMO=0`.

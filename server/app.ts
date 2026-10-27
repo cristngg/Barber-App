@@ -173,6 +173,17 @@ function dayList(value: unknown): number[] {
   return [...new Set(value as number[])].sort();
 }
 
+/* {lat, lng} con ~1 m de precisión, o null para quitar la ubicación. */
+function coordinates(value: unknown): { lat: number; lng: number } | null {
+  if (value == null) return null;
+  const { lat, lng } = value as { lat?: unknown; lng?: unknown };
+  if (typeof lat !== 'number' || typeof lng !== 'number' || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    throw new HttpError(400, 'Ubicación no válida.');
+  }
+  const round = (n: number) => Math.round(n * 1e5) / 1e5;
+  return { lat: round(lat), lng: round(lng) };
+}
+
 function tagList(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((t) => typeof t !== 'string' || !(t in SPECIALTIES))) {
     throw new HttpError(400, 'Especialidad desconocida.');
@@ -202,7 +213,6 @@ function toBarber(row: Row, services: Row[]) {
     tags,
     specialties: tags.map((t) => SPECIALTIES[t]),
     rating: row.rating as number | null,
-    distanceKm: row.distance_km as number | null,
     freeToday: !!row.free_today,
     openNow: !!row.open_now,
     workDays: JSON.parse(row.work_days as string) as number[],
@@ -211,7 +221,7 @@ function toBarber(row: Row, services: Row[]) {
     cover: (row.cover as string | null) ?? undefined,
     photoCount: mapped.filter((s) => s.photo).length,
     services: mapped,
-    map: { x: row.map_x as number, y: row.map_y as number },
+    location: row.lat == null || row.lng == null ? null : { lat: row.lat as number, lng: row.lng as number },
   };
 }
 
@@ -513,8 +523,8 @@ export function createApp({
     const now = Date.now();
     // TODO: cobrar la suscripción ($3.99/mes) antes de crear la cuenta.
     db.prepare(
-      `INSERT INTO barbers (id, owner_id, name, area, map_x, map_y, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, req.userId!, name, area, 12 + Math.floor(Math.random() * 76), 15 + Math.floor(Math.random() * 55), now, now);
+      `INSERT INTO barbers (id, owner_id, name, area, map_x, map_y, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?, ?)`,
+    ).run(id, req.userId!, name, area, now, now);
     res.status(201).json(loadBarber(q.barber.get(id) as Row));
   });
 
@@ -535,6 +545,11 @@ export function createApp({
     if ('tags' in body) set('tags', JSON.stringify(tagList(body.tags)));
     if ('workDays' in body) set('work_days', JSON.stringify(dayList(body.workDays)));
     if ('freeToday' in body) set('free_today', body.freeToday ? 1 : 0);
+    if ('location' in body) {
+      const at = coordinates(body.location);
+      set('lat', at?.lat ?? null);
+      set('lng', at?.lng ?? null);
+    }
     for (const key of ['avatar', 'cover'] as const) {
       if (!(key in body)) continue;
       const next = ownPhoto(body[key], req.userId!);

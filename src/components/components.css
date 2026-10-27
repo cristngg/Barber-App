@@ -777,3 +777,124 @@
   display: flex;
   justify-content: center;
 }
+
+/* ---------- Mapa (Leaflet + OpenStreetMap) ---------- */
+.map {
+  position: relative;
+  flex: none;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-line);
+  overflow: hidden;
+  background: var(--color-surface);
+  isolation: isolate;
+}
+
+/* `.map .map__canvas` gana a `.leaflet-container`: mientras cargan los mosaicos se ve la superficie de Filo, no el gris de Leaflet. */
+.map .map__canvas {
+  position: absolute;
+  inset: 0;
+  background: var(--color-surface);
+  font: 400 12px/16px var(--font-body);
+}
+
+.map--picker {
+  height: 240px;
+}
+
+/* Tema oscuro: los mosaicos claros de OpenStreetMap se oscurecen para no romper "tinta y hueso". */
+[data-theme='dark'] .map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.85) saturate(0.35);
+}
+
+.map .leaflet-control-attribution {
+  background: color-mix(in srgb, var(--color-bg) 80%, transparent);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.map .leaflet-control-attribution a {
+  color: var(--color-polo);
+}
+
+.map-pin {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-brass);
+  border: 3px solid var(--pin-ring);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.map-pin--off {
+  background: var(--color-control);
+}
+
+[data-theme='light'] .map-pin--off {
+  background: #ffffff;
+  border-color: var(--color-control);
+}
+
+.map-pin--selected {
+  border-width: 4px;
+  outline: 4px solid var(--tint-brass);
+}
+
+.map-me {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-polo);
+  border: 3px solid var(--me-ring);
+  outline: 6px solid var(--me-halo);
+}
+
+.map__locate {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 500;
+  border: 1px solid var(--color-line);
+  color: var(--color-polo);
+}
+
+/* Tarjeta del barbero elegido, encima del mapa. */
+.map__card {
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  bottom: var(--space-2);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.map__card > svg {
+  flex: none;
+  color: var(--color-muted);
+}
+
+.map__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.map__card-name {
+  font: 600 16px/22px var(--font-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

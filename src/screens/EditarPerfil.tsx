@@ -5,6 +5,7 @@ import { Button } from '../components/Button';
 import { Chip, ChipRow } from '../components/Chip';
 import { TextArea, TextField } from '../components/Field';
 import { Icon } from '../components/Icon';
+import { LocationPicker } from '../components/Map';
 import { PhotoPicker } from '../components/PhotoPicker';
 import { ActionBar, Screen } from '../components/Screen';
 import { errorMessage } from '../state/api';
@@ -27,7 +28,7 @@ const WEEK = [
 type Errors = Partial<Record<'name' | 'area' | 'workDays', string>>;
 
 export function EditarPerfil() {
-  const { myBarber, updateMyBarber } = useAppState();
+  const { myBarber, updateMyBarber, locate, locationStatus } = useAppState();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<Barber | null>(myBarber);
   const [errors, setErrors] = useState<Errors>({});
@@ -72,6 +73,7 @@ export function EditarPerfil() {
         tags: draft.tags,
         workDays: draft.workDays,
         freeToday: draft.freeToday,
+        location: draft.location,
         avatar: draft.avatar ?? null,
         cover: draft.cover ?? null,
       });
@@ -175,6 +177,33 @@ export function EditarPerfil() {
               <Icon name="alert" size={16} strokeWidth={2} />
               {errors.workDays}
             </span>
+          )}
+        </fieldset>
+
+        <fieldset className="step" id="ubicacion">
+          <legend className="field__label">Dónde atiendes</legend>
+          <p className="t-detail">Toca el mapa o arrastra el pin hasta tu barbería. Los clientes lo ven en el mapa.</p>
+          <LocationPicker value={draft.location} onChange={(at) => set('location', at)} label="Elegir dónde atiendes" />
+          <div className="button-pair button-pair--row">
+            <Button
+              variant="secondary"
+              icon={<Icon name="pin" size={20} />}
+              disabled={locationStatus === 'asking'}
+              onClick={async () => {
+                const at = await locate();
+                if (at) set('location', at);
+              }}
+            >
+              {locationStatus === 'asking' ? 'Buscando…' : 'Estoy aquí'}
+            </Button>
+            {draft.location && (
+              <Button variant="ghost" onClick={() => set('location', null)}>
+                Quitar
+              </Button>
+            )}
+          </div>
+          {locationStatus === 'denied' && (
+            <span className="t-detail">Tu navegador bloqueó la ubicación. Puedes marcarla tocando el mapa.</span>
           )}
         </fieldset>
 

@@ -1,5 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { formatDistance, formatPrice } from '../data/barbers';
+import { directionsUrl } from '../data/geo';
+import { BarberMap } from '../components/Map';
 import { ButtonLink } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { Photo } from '../components/Photo';
@@ -12,7 +14,7 @@ import './screens.css';
 
 export function Perfil() {
   const { id } = useParams();
-  const { getBarber, myBarber } = useAppState();
+  const { getBarber, myBarber, here } = useAppState();
   const barber = getBarber(id);
   if (!barber) return <NotFound />;
   const backTo = barber.id === myBarber?.id ? '/mi-perfil' : '/';
@@ -43,10 +45,32 @@ export function Perfil() {
           </div>
           <div className="profile__meta">
             <Rating value={barber.rating} size={16} />
-            <span>{formatDistance(barber)}</span>
+            <span>{formatDistance(barber, here)}</span>
           </div>
           {barber.bio && <p className="t-body">{barber.bio}</p>}
         </div>
+
+        {barber.location && (
+          <section className="stack-12">
+            <SectionHeader title="Dónde atiende" aside={barber.area} />
+            <BarberMap
+              pins={[{ id: barber.id, at: barber.location, label: barber.name, on: barber.freeToday }]}
+              here={here}
+              interactive={false}
+              label={`Ubicación de ${barber.name}`}
+              className="profile-map"
+            />
+            <a
+              href={directionsUrl(barber.location)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn--secondary"
+            >
+              <Icon name="pin" size={20} />
+              Cómo llegar
+            </a>
+          </section>
+        )}
 
         <section className="stack-12">
           <SectionHeader title="Mis cortes" aside={barber.photoCount === 1 ? '1 foto' : `${barber.photoCount} fotos`} />

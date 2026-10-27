@@ -12,7 +12,7 @@ import './screens.css';
 
 /* Portafolio: el perfil del barbero visto por su dueño, con todo editable. */
 export function MiPerfil() {
-  const { myBarber: barber } = useAppState();
+  const { myBarber: barber, here } = useAppState();
   const location = useLocation();
   const welcome = (location.state as { welcome?: boolean } | null)?.welcome;
 
@@ -40,7 +40,7 @@ export function MiPerfil() {
           </div>
           <div className="profile__meta">
             <Rating value={barber.rating} size={16} />
-            <span>{formatDistance(barber)}</span>
+            <span>{formatDistance(barber, here)}</span>
           </div>
           {barber.bio ? (
             <p className="t-body">{barber.bio}</p>
@@ -48,6 +48,13 @@ export function MiPerfil() {
             <p className="t-detail">Todavía no tienes descripción. Cuenta qué cortes haces y cuándo atiendes.</p>
           )}
         </div>
+
+        {!barber.location && (
+          <Link to="/mi-perfil/editar#ubicacion" className="notice notice--warn">
+            <Icon name="pin" size={20} strokeWidth={2} />
+            <span>Marca dónde atiendes para salir en el mapa y que te encuentren cerca.</span>
+          </Link>
+        )}
 
         <div className="button-pair">
           <ButtonLink to="/mi-perfil/editar" variant="secondary" icon={<Icon name="edit" size={20} />}>

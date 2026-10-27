@@ -15,7 +15,7 @@ import './screens.css';
 export function Reservar() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { book, getBarber } = useAppState();
+  const { book, getBarber, here } = useAppState();
   const barber = getBarber(id);
 
   const days = useMemo(() => (barber ? nextWorkDays(barber.workDays, 5) : []), [barber]);
@@ -104,7 +104,7 @@ export function Reservar() {
         <Photo src={barber.avatar} alt="" label="" className="mini-barber__photo" />
         <div className="mini-barber__body">
           <span className="mini-barber__name">{barber.name}</span>
-          <span className="t-detail">{formatDistance(barber)}</span>
+          <span className="t-detail">{formatDistance(barber, here)}</span>
         </div>
       </div>
 

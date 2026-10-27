@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS barbers (
   hours TEXT NOT NULL DEFAULT '[9,10,11,12,13,14,15,16]',
   avatar TEXT,
   cover TEXT,
+  -- Dónde atiende (WGS84). NULL = todavía no marca su ubicación.
+  lat REAL,
+  lng REAL,
   map_x INTEGER NOT NULL,
   map_y INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
@@ -89,16 +92,18 @@ export function openDb(file: string): DB {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   migrateAnonymousUsers(db);
-  addPasswordColumn(db);
+  addColumn(db, 'users', 'password_hash', 'TEXT');
+  addColumn(db, 'barbers', 'lat', 'REAL');
+  addColumn(db, 'barbers', 'lng', 'REAL');
   db.exec(SCHEMA);
   return db;
 }
 
-/* Bases creadas antes de correo y contraseña no tienen la columna. */
-function addPasswordColumn(db: DB) {
-  const columns = db.prepare("SELECT name FROM pragma_table_info('users')").all() as { name: string }[];
-  if (columns.length && !columns.some((c) => c.name === 'password_hash')) {
-    db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT');
+/* Agrega una columna nueva a una tabla que ya existía en una base anterior. */
+function addColumn(db: DB, table: string, column: string, type: string) {
+  const columns = db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as { name: string }[];
+  if (columns.length && !columns.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
 }
 
@@ -148,42 +153,48 @@ export function transaction<T>(db: DB, fn: () => T): T {
   }
 }
 
-/* Los barberos del diseño, para que la app no arranque vacía. Sin dueño: nadie los edita. */
+/* Los barberos del diseño, para que la app no arranque vacía. Sin dueño: nadie los edita.
+   Ubicaciones aproximadas en Ciudad de Panamá, solo de ejemplo. */
+const DEMO = [
+  {
+    id: 'carlos-m', name: 'Carlos M.', area: 'Bella Vista', tags: ['fade', 'barba', 'disenos'],
+    rating: 4.9, free: 1, open: 1, days: [2, 3, 4, 5, 6], at: [8.9823, -79.5262],
+    bio: 'Fade, barba y diseños a navaja. Atiendo con cita, de martes a sábado.',
+    services: ['Fade bajo', 'Barba con navaja', 'Diseño lineal', 'Corte clásico', 'Fade medio', 'Corte niño'],
+  },
+  {
+    id: 'la-esquina', name: 'Barbería La Esquina', area: 'El Cangrejo', tags: ['clasico', 'navaja', 'barba'],
+    rating: 4.7, free: 1, open: 1, days: [1, 2, 3, 4, 5, 6], at: [8.9928, -79.5287],
+    bio: 'Corte clásico y afeitado a navaja caliente. Sin cita también, si hay puesto.',
+    services: ['Corte clásico', 'Barba con navaja', 'Afeitado caliente'],
+  },
+  {
+    id: 'andres-r', name: 'Andrés R.', area: 'San Francisco', tags: ['ninos', 'fade'],
+    rating: 4.8, free: 0, open: 0, days: [0, 3, 4, 5, 6], at: [8.9961, -79.5068],
+    bio: 'Paciencia con los pelaos y fades limpios. Atiendo de miércoles a domingo.',
+    services: ['Corte niño', 'Fade bajo', 'Fade medio'],
+  },
+];
+
 export function seedDemo(db: DB) {
   const row = db.prepare('SELECT COUNT(*) AS n FROM barbers').get() as { n: number };
-  if (row.n > 0) return;
+  if (row.n > 0) {
+    /* Bases anteriores al mapa: los de ejemplo reciben su ubicación. */
+    const setAt = db.prepare('UPDATE barbers SET lat = ?, lng = ? WHERE id = ? AND owner_id IS NULL AND lat IS NULL');
+    for (const b of DEMO) setAt.run(b.at[0], b.at[1], b.id);
+    return;
+  }
 
   const now = Date.now();
-  const demo = [
-    {
-      id: 'carlos-m', name: 'Carlos M.', area: 'Bella Vista', tags: ['fade', 'barba', 'disenos'],
-      rating: 4.9, distance: 0.8, free: 1, open: 1, days: [2, 3, 4, 5, 6], map: [26, 28],
-      bio: 'Fade, barba y diseños a navaja. Atiendo con cita, de martes a sábado.',
-      services: ['Fade bajo', 'Barba con navaja', 'Diseño lineal', 'Corte clásico', 'Fade medio', 'Corte niño'],
-    },
-    {
-      id: 'la-esquina', name: 'Barbería La Esquina', area: 'El Cangrejo', tags: ['clasico', 'navaja', 'barba'],
-      rating: 4.7, distance: 1.2, free: 1, open: 1, days: [1, 2, 3, 4, 5, 6], map: [54, 52],
-      bio: 'Corte clásico y afeitado a navaja caliente. Sin cita también, si hay puesto.',
-      services: ['Corte clásico', 'Barba con navaja', 'Afeitado caliente'],
-    },
-    {
-      id: 'andres-r', name: 'Andrés R.', area: 'San Francisco', tags: ['ninos', 'fade'],
-      rating: 4.8, distance: 2.1, free: 0, open: 0, days: [0, 3, 4, 5, 6], map: [74, 22],
-      bio: 'Paciencia con los pelaos y fades limpios. Atiendo de miércoles a domingo.',
-      services: ['Corte niño', 'Fade bajo', 'Fade medio'],
-    },
-  ];
-
   const insBarber = db.prepare(`INSERT INTO barbers
-    (id, name, area, bio, tags, rating, distance_km, free_today, open_now, work_days, map_x, map_y, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    (id, name, area, bio, tags, rating, free_today, open_now, work_days, lat, lng, map_x, map_y, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`);
   const insService = db.prepare('INSERT INTO services (id, barber_id, name, price_cents, position) VALUES (?, ?, ?, NULL, ?)');
 
   transaction(db, () => {
-    for (const b of demo) {
-      insBarber.run(b.id, b.name, b.area, b.bio, JSON.stringify(b.tags), b.rating, b.distance, b.free, b.open,
-        JSON.stringify(b.days), b.map[0], b.map[1], now, now);
+    for (const b of DEMO) {
+      insBarber.run(b.id, b.name, b.area, b.bio, JSON.stringify(b.tags), b.rating, b.free, b.open,
+        JSON.stringify(b.days), b.at[0], b.at[1], now, now);
       b.services.forEach((name, i) => insService.run(`${b.id}-${i}`, b.id, name, i));
     }
   });
