@@ -9,6 +9,7 @@ Necesita Node 22.13 o más nuevo (usa la base SQLite que trae Node).
 
 ```bash
 npm install
+cp .env.example .env   # trae el ID de cliente de Google de Filo
 
 # Desarrollo: dos terminales
 npm run dev:server   # API en http://localhost:3001 (con "Entrar de prueba" activado)
@@ -36,12 +37,8 @@ npm test             # pruebas de la API
 
 1. Entra a [Google Cloud Console](https://console.cloud.google.com/), crea un proyecto (o usa uno) y abre **APIs y servicios → Pantalla de consentimiento de OAuth**. Elige "Externo" y pon el nombre de la app (Filo), tu correo de soporte y el logo si quieres.
 2. En **APIs y servicios → Credenciales → Crear credenciales → ID de cliente de OAuth**, elige **Aplicación web**.
-3. En **Orígenes de JavaScript autorizados** agrega cada dirección desde donde se abre la app, por ejemplo `http://localhost:5173`, `http://localhost:3001` y tu dominio de producción (`https://tu-dominio.com`). No hace falta ninguna URI de redireccionamiento.
-4. Copia el **ID de cliente** (termina en `.apps.googleusercontent.com`) y arranca el servidor con él:
-
-```bash
-GOOGLE_CLIENT_ID=1234-abcd.apps.googleusercontent.com npm run dev:server
-```
+3. En **Orígenes de JavaScript autorizados** agrega cada dirección desde donde se abre la app: `http://localhost`, `http://localhost:5173`, `http://localhost:3001` y tu dominio de producción (`https://tu-dominio.com`). Google pide `http://localhost` sin puerto además de cada puerto. No hace falta ninguna URI de redireccionamiento. Los cambios pueden tardar unos minutos en aplicarse.
+4. Copia el **ID de cliente** (termina en `.apps.googleusercontent.com`) en `GOOGLE_CLIENT_ID` dentro de `.env`. El servidor lee `.env` al arrancar; una variable del sistema con el mismo nombre tiene prioridad.
 
 Mientras la pantalla de consentimiento esté "en prueba", solo entran los correos que agregues como usuarios de prueba; publícala para abrirla a todos.
 

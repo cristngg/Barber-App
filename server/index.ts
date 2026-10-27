@@ -5,6 +5,13 @@ import { createApp } from './app.js';
 import { openDb, seedDemo } from './db.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/* Variables del archivo .env (si existe); las del sistema tienen prioridad. */
+try {
+  process.loadEnvFile(resolve(root, '.env'));
+} catch {
+  /* sin .env: se usan solo las variables del sistema */
+}
 const dataDir = resolve(process.env.DATA_DIR ?? resolve(root, 'data'));
 mkdirSync(dataDir, { recursive: true });
 
